@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "biasharasmart-prd": {
+      "command": "python",
+      "args": [
+        "mcp/prd_server.py"
+      ]
+    },
+    "progress-tracker": {
+      "command": "python",
+      "args": [
+        "mcp/progress_server.py"
+      ]
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-filesystem",
+        "\\\\wsl.localhost\\Ubuntu\\home\\bishop\\projects\\biasharasmart"
+      ]
+    }
+  }
+}

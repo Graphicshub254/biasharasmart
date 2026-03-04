@@ -1,0 +1,379 @@
+{
+  "T0.1": {
+    "name": "Project Scaffold & Monorepo Setup",
+    "phase": 0,
+    "assigned_to": "Claude",
+    "effort_days": 3,
+    "subtasks": [
+      "Init monorepo: apps/mobile (RN), apps/api (NestJS), packages/shared-types",
+      "Configure TypeScript strict mode across all workspaces",
+      "Set up ESLint + Prettier with financial-code rules (no any, strict null)",
+      "Configure GitHub Actions CI: lint → test → build on every PR",
+      "Create .env.example with all required environment variables"
+    ],
+    "acceptance_criteria": [
+      "yarn workspaces install completes with zero errors",
+      "TypeScript compiles in all three packages",
+      "GitHub Actions pipeline runs green on a test commit",
+      "All env vars documented in .env.example"
+    ]
+  },
+  "T0.2": {
+    "name": "MCP Server Setup",
+    "phase": 0,
+    "assigned_to": "Gemini",
+    "effort_days": 2,
+    "subtasks": [
+      "Install FastMCP >= 2.12.3",
+      "Build and register prd_server.py",
+      "Build and register progress_server.py",
+      "Configure filesystem MCP server",
+      "Verify Google Search grounding"
+    ],
+    "acceptance_criteria": [
+      "gemini /mcp shows all 4 servers connected",
+      "Query 'what are the acceptance criteria for T0.4?' returns correct spec",
+      "Query 'what tasks are complete?' returns progress.txt data",
+      "Search grounding returns live Daraja API docs"
+    ]
+  },
+  "T0.3": {
+    "name": "Design Token System",
+    "phase": 0,
+    "assigned_to": "Claude",
+    "effort_days": 2,
+    "subtasks": [
+      "Create packages/ui-tokens/tokens.ts with all colour, spacing, typography tokens",
+      "Generate React Native StyleSheet from tokens",
+      "Create component stubs for all 12 core components",
+      "Set up Storybook for React Native",
+      "Create dark and light themes"
+    ],
+    "acceptance_criteria": [
+      "All tokens defined and exported from packages/ui-tokens",
+      "No hex value or font size hard-coded anywhere in components",
+      "All 12 component stubs render without errors in Storybook",
+      "Dark/light theme switch works on all stubs"
+    ]
+  },
+  "T0.4": {
+    "name": "Database Schema & Ledger Foundation",
+    "phase": 0,
+    "assigned_to": "Gemini",
+    "effort_days": 3,
+    "subtasks": [
+      "Write PostgreSQL 16 migration: businesses, ledger, invoices, payments, vat_returns tables",
+      "Implement append-only constraint on ledger (DB trigger blocks UPDATE/DELETE)",
+      "Implement partitioning by business_id on ledger table",
+      "Write SHA-256 checksum chain function",
+      "Run migration, seed 5 test businesses"
+    ],
+    "acceptance_criteria": [
+      "Migration runs clean on fresh PostgreSQL 16 instance",
+      "UPDATE on ledger row throws constraint violation",
+      "DELETE on ledger row throws constraint violation",
+      "Insert of 1000 ledger rows for one business completes in under 200ms",
+      "Checksum chain verifies across all 1000 rows"
+    ]
+  },
+  "T0.5": {
+    "name": "progress.txt + GEMINI.md Initialisation",
+    "phase": 0,
+    "assigned_to": "Claude",
+    "effort_days": 1,
+    "subtasks": [
+      "Create progress.txt with JSON schema",
+      "Create GEMINI.md master template",
+      "Write progress_server.py and register with Gemini CLI",
+      "Document session-start protocol in CONTRIBUTING.md"
+    ],
+    "acceptance_criteria": [
+      "progress.txt is valid JSON with all task IDs",
+      "progress_server returns current state when queried",
+      "GEMINI.md template covers all required fields",
+      "New developer can follow CONTRIBUTING.md and complete a session"
+    ]
+  },
+  "T1.1": {
+    "name": "Onboarding Flow — All 4 Screens",
+    "phase": 1,
+    "assigned_to": "Gemini",
+    "effort_days": 4,
+    "subtasks": [
+      "Build /onboard/type: 3 selection cards",
+      "Build /onboard/pin: KRA PIN input + real-time iTax validation",
+      "Build /onboard/mpesa: Paybill/Till input + Daraja validation",
+      "Build /onboard/kyc: Document camera + S3 upload with progress",
+      "Implement step-save: progress persists if user closes app mid-flow",
+      "Trigger GavaConnect eTIMS registration on KYC approval webhook"
+    ],
+    "acceptance_criteria": [
+      "Full onboarding flow completes in under 10 minutes on 3G simulation",
+      "Invalid KRA PIN shows error in under 3 seconds",
+      "Invalid Paybill shows error from Daraja in under 3 seconds",
+      "KYC document uploads with progress indicator",
+      "Closing and reopening app resumes at correct step",
+      "GavaConnect registration called on approval event"
+    ]
+  },
+  "T1.2": {
+    "name": "Dashboard — Home Screen",
+    "phase": 1,
+    "assigned_to": "Gemini",
+    "effort_days": 4,
+    "subtasks": [
+      "Build BalanceCard hero showing current month revenue",
+      "Build 4 MetricTiles: VAT Owed | Invoices Pending | Float Balance | TCC Status",
+      "Build ActionRow: New Invoice | Receive Payment | View Reports | AI Advisor",
+      "Implement SkeletonLoader for all cards",
+      "Implement offline mode with last-synced timestamp",
+      "Implement real-time float balance update via M-Pesa webhook"
+    ],
+    "acceptance_criteria": [
+      "Dashboard renders with skeleton loaders in under 500ms",
+      "All data loads within 3 seconds on 3G network throttle",
+      "Offline mode shows last-synced data with visible timestamp",
+      "Float balance updates within 10 seconds of simulated M-Pesa payment",
+      "No hard-coded values — all data from API"
+    ]
+  },
+  "T1.3": {
+    "name": "Invoice Engine — List + Create + Detail",
+    "phase": 1,
+    "assigned_to": "Gemini",
+    "effort_days": 5,
+    "subtasks": [
+      "Build /invoices: InvoiceCard list, FAB create button, filter bar",
+      "Build /invoices/new: multi-step form",
+      "Build product/service catalogue selector with VAT rate per item",
+      "Integrate GavaConnect: submit invoice, receive CU number",
+      "Build offline queue for GavaConnect unavailability",
+      "Build /invoices/:id: full detail, CU badge, share as PDF or WhatsApp"
+    ],
+    "acceptance_criteria": [
+      "Invoice created and CU number returned in under 8 seconds",
+      "CU badge appears on InvoiceCard after successful GavaConnect submission",
+      "Offline queue holds invoice when GavaConnect endpoint is mocked as down",
+      "Queued invoice submits within 60 seconds when endpoint restored",
+      "Invoice PDF generates and is shareable via WhatsApp",
+      "List filters correctly by status"
+    ]
+  },
+  "T1.4": {
+    "name": "M-Pesa Payment Integration",
+    "phase": 1,
+    "assigned_to": "Gemini",
+    "effort_days": 5,
+    "subtasks": [
+      "Build /payment/confirm: BottomSheet STK push initiation",
+      "Build /payment/status: animated success/fail screens",
+      "Implement Daraja STK Push with idempotency key",
+      "Implement webhook receiver: payment → ledger write → invoice reconciliation",
+      "Implement 90-second timeout resolution",
+      "Implement FCM push notification on payment confirmed"
+    ],
+    "acceptance_criteria": [
+      "STK push initiated within 2 seconds of tapping pay",
+      "Success animation plays within 10 seconds of M-Pesa confirmation",
+      "Payment automatically matched to correct invoice",
+      "Timeout resolution completes within 90 seconds without manual intervention",
+      "Ledger entry created atomically with payment confirmation",
+      "FCM push notification delivered within 10 seconds of confirmation"
+    ]
+  },
+  "T1.5": {
+    "name": "TCC Status Screen",
+    "phase": 1,
+    "assigned_to": "Gemini",
+    "effort_days": 2,
+    "subtasks": [
+      "Build /tcc: large StatusBadge, expiry date, validity countdown ring",
+      "Build TCC history timeline (last 12 months, colour-coded)",
+      "Implement daily GavaConnect TCC check (background job)",
+      "Implement expiry alert notifications: 60/30/14/7 days before, and on lapse"
+    ],
+    "acceptance_criteria": [
+      "TCC status displays correctly for compliant, warning, and lapsed states",
+      "Expiry countdown ring animates correctly",
+      "GavaConnect check runs daily and updates status",
+      "Notification fires when mock TCC set to expire in 7 days"
+    ]
+  },
+  "T1.6": {
+    "name": "Admin Console — Core",
+    "phase": 1,
+    "assigned_to": "Claude",
+    "effort_days": 3,
+    "subtasks": [
+      "Build /admin: role-gated (RBAC), KYC queue with SLA countdown",
+      "Build KYC review: document viewer, approve/reject workflow",
+      "Build system health panel: GavaConnect status, M-Pesa webhook latency, AI API",
+      "Build business search: find any business by PIN or Paybill"
+    ],
+    "acceptance_criteria": [
+      "Admin route is inaccessible to non-admin users (returns 403)",
+      "KYC queue shows correct SLA countdown per application",
+      "Approve/reject flow triggers correct downstream actions",
+      "System health shows real-time status of all integrations",
+      "Business search returns result within 2 seconds"
+    ]
+  },
+  "T2.1": {
+    "name": "VAT Filing — Overview + Return Detail",
+    "phase": 2,
+    "assigned_to": "Gemini",
+    "effort_days": 4,
+    "subtasks": [
+      "Build /vat: ProgressRing, VAT owed, next deadline countdown",
+      "Build /vat/:period: full computation breakdown",
+      "Build approve + one-tap file CTA",
+      "Implement auto-submission fallback (48hr no-action)",
+      "Build offline queue for GavaConnect outage on filing deadline",
+      "Build peak mode: banner shown June 25–July 2"
+    ],
+    "acceptance_criteria": [
+      "VAT computation matches manually verified calculation for 5 test businesses",
+      "One-tap file submits to GavaConnect and returns acknowledgement number",
+      "Auto-submission fires after 48hr with no user action in test environment",
+      "Offline queue holds prepared return when GavaConnect mocked as unavailable",
+      "Peak mode banner visible on correct date range"
+    ]
+  },
+  "T2.2": {
+    "name": "AI Business Advisor — Chat Screen",
+    "phase": 2,
+    "assigned_to": "Claude",
+    "effort_days": 5,
+    "subtasks": [
+      "Build /advisor: chat BottomSheet with suggested prompts",
+      "Implement 5-layer input sanitisation",
+      "Implement Claude API routing: Haiku for simple queries, Sonnet for tax analysis",
+      "Implement read-only context builder injecting ledger summary",
+      "Implement output scanner: flag phone numbers, account numbers, URLs",
+      "Build 'consult a qualified accountant' disclaimer on every response"
+    ],
+    "acceptance_criteria": [
+      "Query 'how much VAT do I owe?' returns correct figure from actual ledger data",
+      "Input with prompt injection attempt is sanitised",
+      "Output scanner flags a test response containing a phone number before delivery",
+      "Disclaimer appears on every response without exception",
+      "Response time under 8 seconds for Haiku-class queries on 4G"
+    ]
+  },
+  "T2.3": {
+    "name": "Notification System — Full Tier",
+    "phase": 2,
+    "assigned_to": "Gemini",
+    "effort_days": 3,
+    "subtasks": [
+      "Implement FCM push: payment confirmed, deadline reminder, TCC alert",
+      "Implement Africa's Talking SMS fallback",
+      "Implement WhatsApp business API: eTIMS receipts + TCC lapse only",
+      "Implement monthly cap: max 3 non-receipt WhatsApp messages per business",
+      "Build /settings/notifications: channel toggle, frequency preferences"
+    ],
+    "acceptance_criteria": [
+      "FCM notification delivered within 10 seconds of triggering event",
+      "SMS fires when user activity mock shows 8 days since last app open",
+      "WhatsApp cap blocks 4th non-receipt message in a calendar month",
+      "Notification preferences saved and respected across sessions"
+    ]
+  },
+  "T2.4": {
+    "name": "Reports + Data Export",
+    "phase": 2,
+    "assigned_to": "Gemini",
+    "effort_days": 3,
+    "subtasks": [
+      "Build monthly P&L report: auto-generated by 1st of each month",
+      "Build CSV and PDF export for all transaction history",
+      "Build accountant-ready report format",
+      "Implement 7-year retention enforcement (no delete on ledger exports)"
+    ],
+    "acceptance_criteria": [
+      "P&L report generates correctly for 3 test business profiles",
+      "CSV export contains all ledger fields with correct values",
+      "PDF is branded and passes visual QA",
+      "Attempting to delete a ledger export is blocked"
+    ]
+  },
+  "T3.1": {
+    "name": "Payroll — Overview + Run Payroll",
+    "phase": 3,
+    "assigned_to": "Claude",
+    "effort_days": 6,
+    "subtasks": [
+      "Build /payroll: employee cards, total payroll cost, run payroll CTA",
+      "Build payroll computation engine: PAYE (all bands), NHIF, NSSF, NITA",
+      "Build /payroll/run: computation review, employee breakdown, M-Pesa batch confirm",
+      "Implement Daraja B2C bulk payment for salary disbursement",
+      "Generate payslip PDF per employee (WhatsApp delivery)"
+    ],
+    "acceptance_criteria": [
+      "PAYE computation matches ICPAK reference for 10 test employee profiles",
+      "NHIF and NSSF deductions correct at current statutory rates",
+      "M-Pesa B2C batch payment completes for 50 employees in under 10 minutes",
+      "Each employee receives WhatsApp payslip within 5 minutes of run completion"
+    ]
+  },
+  "T3.2": {
+    "name": "Accountant Marketplace",
+    "phase": 3,
+    "assigned_to": "Gemini",
+    "effort_days": 5,
+    "subtasks": [
+      "Build /accountants: search with filter (specialisation, language, rating)",
+      "Build /accountants/:id: profile, CPA-K verified badge, engage CTA",
+      "Implement ICPAK number verification flow",
+      "Implement consent-gated data access",
+      "Implement commission computation (25% first 12mo, 15% thereafter)",
+      "Build accountant dashboard: client list, returns due, commission earned"
+    ],
+    "acceptance_criteria": [
+      "Accountant search returns results filtered correctly by all parameters",
+      "CPA-K badge only appears after ICPAK verification completes",
+      "Accountant cannot access business data before consent granted",
+      "Commission computed correctly for a 12-month simulated engagement",
+      "Accountant dashboard shows accurate client list"
+    ]
+  },
+  "T3.3": {
+    "name": "Bank Lending Referral — Loan Offers Screen",
+    "phase": 3,
+    "assigned_to": "Claude",
+    "effort_days": 3,
+    "subtasks": [
+      "Build eligibility assessment: 12-month check, TCC valid, VAT compliance",
+      "Build consent management UI: what is shared, revoke at any time",
+      "Build /bank/offers: Co-op branded loan offer card",
+      "Implement Co-op Bank API data share (consent-gated)",
+      "Implement referral fee tracking per approved loan"
+    ],
+    "acceptance_criteria": [
+      "Eligibility check correctly passes/fails 10 test business profiles",
+      "Data share blocked until explicit consent granted",
+      "Revoking consent removes business data from Co-op API within 30 seconds",
+      "Loan offer displays with correct personalised terms from Co-op API",
+      "Referral fee tracked in admin console per approved loan"
+    ]
+  },
+  "T3.4": {
+    "name": "Pokea Risiti — WhatsApp Receipt Request",
+    "phase": 3,
+    "assigned_to": "Gemini",
+    "effort_days": 3,
+    "subtasks": [
+      "Implement WhatsApp inbound message handler for receipt requests",
+      "Implement invoice matching engine (amount + date + Paybill fuzzy match)",
+      "Generate KRA receipt image with CU number and QR code",
+      "Deliver receipt to customer WhatsApp within 60 seconds",
+      "Notify business owner if no invoice match found"
+    ],
+    "acceptance_criteria": [
+      "Receipt request processed and delivered within 60 seconds of WhatsApp message",
+      "QR code on receipt links to correct KRA verification endpoint",
+      "Business owner notified within 30 seconds when no match found",
+      "Activity log shows all requests with match status"
+    ]
+  }
+}

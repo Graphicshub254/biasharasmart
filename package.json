@@ -1,0 +1,14 @@
+{
+  "name": "biasharasmart",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "packages/ui-tokens"
+  ],
+  "scripts": {
+    "build": "yarn workspaces run build",
+    "test": "yarn workspaces run test",
+    "lint": "yarn workspaces run lint"
+  }
+}
