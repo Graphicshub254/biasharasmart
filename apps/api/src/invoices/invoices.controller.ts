@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Param, Body, Query, NotFoundException } from '@nestjs/common';
+﻿import { Controller, Get, Post, Patch, Param, Body, Query, NotFoundException } from '@nestjs/common';
 import { InvoicesService } from './invoices.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { UpdateInvoiceStatusDto } from './dto/update-invoice-status.dto';
@@ -16,6 +16,11 @@ export class InvoicesController {
   @Post()
   createInvoice(@Body() dto: CreateInvoiceDto) {
     return this.invoicesService.createInvoice(dto);
+  }
+
+  @Get('offline-queue/:businessId')
+  getOfflineQueue(@Param('businessId') businessId: string) {
+    return this.invoicesService.getOfflineQueue(businessId);
   }
 
   @Get(':id')

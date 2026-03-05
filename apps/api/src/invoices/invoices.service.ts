@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+﻿import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Invoice, InvoiceStatus } from '../entities/invoice.entity';
@@ -118,5 +118,12 @@ export class InvoicesService {
     invoice.status = InvoiceStatus.PENDING_KRA;
     invoice.offlineQueued = false;
     return this.invoiceRepository.save(invoice);
+  }
+
+  async getOfflineQueue(businessId: string): Promise<Invoice[]> {
+    return this.invoiceRepository.find({
+      where: { businessId, offlineQueued: true },
+      order: { createdAt: 'ASC' },
+    });
   }
 }

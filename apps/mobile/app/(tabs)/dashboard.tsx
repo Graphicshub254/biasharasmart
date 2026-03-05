@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import {
 } from '../../src/components';
 import { useNetworkStatus } from '../../src/lib/network';
 import { DashboardSummary } from '@biasharasmart/shared-types';
+import { useInvoiceSync } from '../../src/lib/invoice-sync';
 
 // --- Constants ---
 
@@ -32,7 +33,8 @@ const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 export default function DashboardScreen() {
   const router = useRouter();
   const { isOnline } = useNetworkStatus();
-  
+  useInvoiceSync(); // auto-syncs offline invoice queue on reconnect
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
@@ -41,11 +43,11 @@ export default function DashboardScreen() {
 
   const fetchDashboard = useCallback(async (isRefresh = false) => {
     if (!isRefresh) setLoading(true);
-    
+
     try {
       const res = await fetch(`${API_BASE}/api/dashboard/summary`);
       if (!res.ok) throw new Error('Failed to fetch dashboard data');
-      
+
       const data: DashboardSummary = await res.json();
       setSummary(data);
       setCachedSummary(data);
@@ -129,7 +131,7 @@ export default function DashboardScreen() {
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.mint} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.mint} />   
         }
       >
         {/* Offline Banner */}
@@ -229,14 +231,14 @@ export default function DashboardScreen() {
               title={tx.description}
               amount={tx.amount}
               timestamp={new Date(tx.date)}
-              onPress={() => Alert.alert('Transaction Detail', `ID: ${tx.id}\n${tx.description}`)}
+              onPress={() => Alert.alert('Transaction Detail', `ID: ${tx.id}\n${tx.description}`)}   
             />
           ))}
           {(!summary?.recentTransactions || summary.recentTransactions.length === 0) && (
             <Text style={styles.emptyText}>No recent transactions</Text>
           )}
         </SectionCard>
-        
+
         <View style={styles.footerSpacer} />
       </ScrollView>
     </SafeAreaView>

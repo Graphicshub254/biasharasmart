@@ -1,5 +1,5 @@
-﻿# GEMINI.md — Task Brief: T1.3c
-## Task: Invoice detail screen + PDF generation + share
+﻿# GEMINI.md — Task Brief: T1.3d
+## Task: Offline queue sync + T1.3 integration verification
 
 ---
 
@@ -16,23 +16,21 @@
 ## Pre-checks
 
 ```powershell
-# 1. T1.3b files exist
-wsl -d Ubuntu -- bash -c "wc -l /home/bishop/projects/biasharasmart/apps/mobile/app/\(tabs\)/invoices.tsx /home/bishop/projects/biasharasmart/apps/mobile/app/invoices/create.tsx"
+# 1. T1.3c detail screen exists
+wsl -d Ubuntu -- bash -c "wc -l /home/bishop/projects/biasharasmart/apps/mobile/app/invoices/\[id\].tsx"
 ```
-Both must be over 100 lines.
+Must be over 120 lines.
 
 ```powershell
-# 2. tsc clean
+# 2. Both workspaces clean
+wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api build 2>&1 | tail -5"
 wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/mobile tsc --noEmit 2>&1 | tail -5"
 ```
 
 ```powershell
-# 3. Read component stubs
-wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/mobile/src/components/StatusBadge/StatusBadge.tsx"
-wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/packages/shared-types/src/index.ts"
-wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/packages/ui-tokens/src/colors.ts"
-wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/packages/ui-tokens/src/spacing.ts"
-wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/packages/ui-tokens/src/typography.ts"
+# 3. Read offline sync service
+wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/api/src/invoices/invoices.service.ts"
+wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/mobile/src/lib/network.ts"
 ```
 
 ---
@@ -41,173 +39,159 @@ wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/packages/ui-to
 
 | File | What it does |
 |---|---|
-| `apps/mobile/app/invoices/[id].tsx` | Invoice detail screen |
+| `apps/mobile/src/lib/invoice-sync.ts` | Auto-sync offline queue when connection restored |
+| `apps/api/src/invoices/invoices.service.ts` | Add `getOfflineQueue` method |
+| `apps/api/src/invoices/invoices.controller.ts` | Add `GET /api/invoices/offline-queue/:businessId` |
 
 ---
 
-## Step 1 — Check expo-sharing and expo-print are installed
+## Part 1 — API: offline queue endpoint
 
-```powershell
-wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/mobile/package.json | python3 -m json.tool | grep -E 'sharing|print'"
-```
-
-If missing:
-```powershell
-wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/mobile add expo-sharing expo-print"
-```
-
----
-
-## Step 2 — Build invoice detail screen
-
-File: `apps/mobile/app/invoices/[id].tsx`
-
-**Design spec:**
-- Background: `colors.ink`
-- Back chevron top-left → `router.back()`
-- Header row: "Invoice" title + StatusBadge (right)
-- Invoice meta card (`colors.greyDark` background):
-  - Invoice ref: last 8 chars of ID, monospace, `colors.greyMid`
-  - Customer name: large, `colors.white`
-  - Customer phone (if present): `colors.greyMid`
-  - KRA CU badge: if `cuNumber` present, show green "KRA ✓ {cuNumber}" pill
-  - Created date: formatted "DD MMM YYYY"
-- Line items section (SectionCard title="Items"):
-  - Each line: description left, "Qty x Price" centre, total right in `colors.mint`
-  - VAT rate shown as small label: "VAT 16%" or "VAT 0%"
-- Totals section:
-  - Subtotal row: label + amount right-aligned
-  - VAT row: label + amount right-aligned, `colors.greyMid`
-  - Divider
-  - Total row: bold, large, `colors.mint`, JetBrains Mono
-- Action buttons row at bottom (2 buttons side by side):
-  - "Share PDF" — `variant="secondary"` — generates PDF and shares
-  - "Mark as Paid" — `variant="primary"` — only shown if status is `issued` or `pending_kra`
-  - "Sync KRA" — `variant="ghost"` — only shown if `offlineQueued === true`
-
-**Data fetching:**
+Add to `invoices.service.ts`:
 ```typescript
+async getOfflineQueue(businessId: string): Promise<Invoice[]> {
+  return this.invoiceRepository.find({
+    where: { businessId, offlineQueued: true },
+    order: { createdAt: 'ASC' },
+  });
+}
+```
+
+Add to `invoices.controller.ts`:
+```typescript
+@Get('offline-queue/:businessId')
+getOfflineQueue(@Param('businessId') businessId: string) {
+  return this.invoicesService.getOfflineQueue(businessId);
+}
+```
+
+---
+
+## Part 2 — Mobile: invoice-sync utility
+
+File: `apps/mobile/src/lib/invoice-sync.ts`
+
+```typescript
+import { useEffect, useRef } from 'react';
+import { useNetworkStatus } from './network';
+
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
-const { id } = useLocalSearchParams<{ id: string }>();
+const BUSINESS_ID = '7951dda8-a30e-4928-8350-b6c5662154a8'; // temp until T1.6 auth
 
-useEffect(() => {
-  const fetchInvoice = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/invoices/${id}`);
-      if (!res.ok) throw new Error('Not found');
-      const data = await res.json();
-      setInvoice(data);
-    } catch {
-      setError(true);
-    } finally {
-      setLoading(false);
+export function useInvoiceSync() {
+  const { isOnline } = useNetworkStatus();
+  const wasOffline = useRef(false);
+
+  useEffect(() => {
+    if (!isOnline) {
+      wasOffline.current = true;
+      return;
     }
-  };
-  if (id) fetchInvoice();
-}, [id]);
+
+    // Only sync if we were previously offline
+    if (!wasOffline.current) return;
+    wasOffline.current = false;
+
+    const syncQueue = async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/invoices/offline-queue/${BUSINESS_ID}`
+        );
+        if (!res.ok) return;
+        const queued: any[] = await res.json();
+
+        // Fire sync for each queued invoice
+        await Promise.allSettled(
+          queued.map(invoice =>
+            fetch(`${API_BASE}/api/invoices/${invoice.id}/sync`, {
+              method: 'POST',
+            })
+          )
+        );
+      } catch {
+        // Silent fail — will retry next reconnect
+      }
+    };
+
+    syncQueue();
+  }, [isOnline]);
+}
 ```
-
-**Mark as paid:**
-```typescript
-const markAsPaid = async () => {
-  const res = await fetch(`${API_BASE}/api/invoices/${id}/status`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status: 'paid' }),
-  });
-  if (res.ok) {
-    const updated = await res.json();
-    setInvoice(updated);
-  }
-};
-```
-
-**Sync KRA:**
-```typescript
-const syncKra = async () => {
-  setSyncing(true);
-  const res = await fetch(`${API_BASE}/api/invoices/${id}/sync`, { method: 'POST' });
-  if (res.ok) {
-    const updated = await res.json();
-    setInvoice(updated);
-  }
-  setSyncing(false);
-};
-```
-
-**PDF generation and share:**
-```typescript
-import * as Print from 'expo-print';
-import * as Sharing from 'expo-sharing';
-
-const sharePdf = async () => {
-  if (!invoice) return;
-  const html = `
-    <html><body style="font-family: Arial; padding: 20px;">
-      <h1 style="color: #003366;">BiasharaSmart Invoice</h1>
-      <p><strong>Ref:</strong> ${invoice.id.slice(-8).toUpperCase()}</p>
-      <p><strong>Customer:</strong> ${invoice.customerName ?? 'N/A'}</p>
-      <p><strong>Date:</strong> ${new Date(invoice.createdAt).toLocaleDateString('en-KE')}</p>
-      ${invoice.cuNumber ? `<p><strong>KRA CU:</strong> ${invoice.cuNumber}</p>` : ''}
-      <hr/>
-      <table width="100%">
-        <tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr>
-        ${invoice.lineItems.map((item: any) => `
-          <tr>
-            <td>${item.description}</td>
-            <td>${item.quantity}</td>
-            <td>KES ${parseFloat(item.unitPrice).toLocaleString('en-KE')}</td>
-            <td>KES ${parseFloat(item.total).toLocaleString('en-KE')}</td>
-          </tr>
-        `).join('')}
-      </table>
-      <hr/>
-      <p style="text-align:right;">Subtotal: KES ${parseFloat(invoice.subtotalKes).toLocaleString('en-KE')}</p>
-      <p style="text-align:right;">VAT: KES ${parseFloat(invoice.vatAmountKes).toLocaleString('en-KE')}</p>
-      <h2 style="text-align:right; color: #00BFA5;">Total: KES ${parseFloat(invoice.totalKes).toLocaleString('en-KE')}</h2>
-    </body></html>
-  `;
-  const { uri } = await Print.printToFileAsync({ html });
-  await Sharing.shareAsync(uri, {
-    mimeType: 'application/pdf',
-    dialogTitle: `Invoice ${invoice.id.slice(-8).toUpperCase()}`,
-  });
-};
-```
-
-**Loading state:** `SkeletonLoader variant="card" count={4}`
-**Error state:** centered "Invoice not found" + back button
 
 ---
 
-## TypeScript check + verify
+## Part 3 — Wire sync into dashboard
 
+Read current dashboard.tsx:
 ```powershell
-wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/mobile tsc --noEmit 2>&1 | tail -10"
-wsl -d Ubuntu -- bash -c "wc -l /home/bishop/projects/biasharasmart/apps/mobile/app/invoices/\[id\].tsx"
+wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/mobile/app/\(tabs\)/dashboard.tsx | head -30"
 ```
 
-File must be over 120 lines.
+Add `useInvoiceSync()` hook call inside the dashboard component:
+```typescript
+import { useInvoiceSync } from '../../src/lib/invoice-sync';
+
+// Inside component:
+useInvoiceSync(); // auto-syncs offline invoice queue on reconnect
+```
+
+---
+
+## Part 4 — Integration test
+
+Start API:
+```powershell
+Start-Job -ScriptBlock { wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api start:dev 2>&1" }
+Start-Sleep -Seconds 20
+```
+
+Run full flow test:
+```powershell
+$BID = "7951dda8-a30e-4928-8350-b6c5662154a8"
+
+# 1. Create invoice
+wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/invoices -H 'Content-Type: application/json' -d '{\"businessId\":\"$BID\",\"customerName\":\"Integration Test\",\"lineItems\":[{\"description\":\"Service Fee\",\"quantity\":2,\"unitPrice\":5000,\"vatRate\":0.16}]}' > /tmp/inv.json && cat /tmp/inv.json | python3 -m json.tool | grep -E 'id|status|cuNumber|totalKes'"
+
+# 2. Get invoice ID
+wsl -d Ubuntu -- bash -c "cat /tmp/inv.json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[\"id\"])'" 
+
+# Store ID and test detail + status update
+# 3. Get detail
+wsl -d Ubuntu -- bash -c "IID=\$(cat /tmp/inv.json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[\"id\"])') && curl -s http://localhost:3000/api/invoices/\$IID | python3 -m json.tool | grep -E 'id|status|totalKes'"
+
+# 4. Mark as paid
+wsl -d Ubuntu -- bash -c "IID=\$(cat /tmp/inv.json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[\"id\"])') && curl -s -X PATCH http://localhost:3000/api/invoices/\$IID/status -H 'Content-Type: application/json' -d '{\"status\":\"paid\"}' | python3 -m json.tool | grep status"
+
+# 5. Verify list now shows 1+ invoices
+wsl -d Ubuntu -- bash -c "curl -s 'http://localhost:3000/api/invoices?businessId=$BID' | python3 -m json.tool | grep total"
+```
+
+Expected: invoice created with cuNumber, detail returns line items, status updated to paid, list shows total > 0.
+
+---
+
+## TypeScript + build check
+
+```powershell
+wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api build 2>&1 | tail -5"
+wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/mobile tsc --noEmit 2>&1 | tail -5"
+```
 
 ---
 
 ## Exit criteria
 
-- [ ] `app/invoices/[id].tsx` exists and is over 120 lines
-- [ ] Fetches invoice from `GET /api/invoices/:id`
-- [ ] Shows line items with individual totals
-- [ ] Shows subtotal, VAT, total
-- [ ] "Mark as Paid" button calls `PATCH /api/invoices/:id/status`
-- [ ] "Sync KRA" button shown only when `offlineQueued === true`
-- [ ] "Share PDF" generates HTML PDF and opens share sheet
-- [ ] tsc: zero errors
+- [ ] `GET /api/invoices/offline-queue/:businessId` returns array
+- [ ] `src/lib/invoice-sync.ts` exists with `useInvoiceSync` hook
+- [ ] `useInvoiceSync` wired into dashboard.tsx
+- [ ] Full flow test passes: create → detail → mark paid → list updated
+- [ ] API build: zero errors
+- [ ] Mobile tsc: zero errors
 
 ---
 
 ## Do NOT do
-- Do not build payments screen — that is T1.4
-- Do not use hardcoded colors
+- Do not build M-Pesa STK push — that is T1.4
 - Do not use `find /`
 
 ---
@@ -218,8 +202,10 @@ File must be over 120 lines.
 $p = "\\wsl$\Ubuntu\home\bishop\projects\biasharasmart\progress.txt"
 $raw = [System.IO.File]::ReadAllText($p).TrimStart([char]0xFEFF)
 $d = $raw | ConvertFrom-Json
-$d.tasks.'T1.3'.notes = "T1.3a+b+c complete: NestJS 5 endpoints, invoice list+create+detail screens, PDF share via expo-print. tsc clean."
+$d.tasks.'T1.3'.status = "complete"
+$d.tasks.'T1.3'.notes = "T1.3 COMPLETE: 5 API endpoints, invoice list+create+detail+PDF share, offline queue auto-sync on reconnect. Full flow tested. tsc clean on both workspaces."
+$d.current_task = "T1.4"
 [System.IO.File]::WriteAllText($p, ($d | ConvertTo-Json -Depth 10), [System.Text.Encoding]::UTF8)
-wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git add -A && git commit -m 'T1.3c: Invoice detail screen + PDF share'"
-Write-Host "T1.3c COMPLETE"
+wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git add -A && git commit -m 'T1.3d: Offline queue sync + T1.3 complete'"
+Write-Host "T1.3d COMPLETE — T1.3 DONE"
 ```
