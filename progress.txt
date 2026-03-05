@@ -55,8 +55,8 @@
                                "notes":  "Dashboard home screen built. BalanceCard, 4 MetricTiles, TCC AlertBanner, RecentTransactions, ActionRow. Skeleton loaders. Offline mode with cached data. GET /api/dashboard/summary live. Shared-types migration: DashboardSummary, Business, Invoice, Payment, OnboardingData moved to @biasharasmart/shared-types. All 3 workspaces tsc clean. GEMINI_TEMPLATE updated with schema validation pre-check."
                            },
                   "T1.3":  {
-                               "status":  "in_progress",
-                               "notes":  "T1.3a+b complete: NestJS InvoicesModule (5 endpoints). Invoice list screen with filter pills, pull-to-refresh, useFocusEffect. Create invoice form with dynamic line items and live total calculation. tsc clean."
+                               "status":  "complete",
+                               "notes":  "T1.3a+b+c complete: NestJS 5 endpoints, invoice list+create+detail screens, PDF share via expo-print. tsc clean."
                            },
                   "T1.4":  {
                                "status":  "not_started",
