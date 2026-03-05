@@ -9,6 +9,7 @@ CREATE TABLE businesses (
   business_type business_type_enum NOT NULL,
   mpesa_paybill VARCHAR(20),
   mpesa_till VARCHAR(20),
+  cu_number VARCHAR(50),
   gavaconnect_id VARCHAR(100),
   kyc_status kyc_status_enum DEFAULT 'pending',
   created_at TIMESTAMPTZ DEFAULT NOW(),

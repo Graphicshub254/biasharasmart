@@ -39,6 +39,9 @@ export class Business {
   @Column({ name: 'mpesa_till', length: 20, nullable: true })
   mpesaTill?: string;
 
+  @Column({ name: 'cu_number', length: 50, nullable: true })
+  cuNumber?: string;
+
   @Column({ name: 'gavaconnect_id', length: 100, nullable: true })
   gavaconnectId?: string;
 

@@ -23,6 +23,12 @@ filesystem://apps/...
 wsl -d Ubuntu -- bash -c "test -f /home/bishop/projects/biasharasmart/[file] && echo OK || echo MISSING"
 If MISSING: stop, do not proceed.
 
+### Schema validation pre-check (run before any DB-touching task)
+```powershell
+wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && yarn workspace @biasharasmart/api typeorm schema:log 2>&1 | grep -E 'missing|would|alter' | head -20 || echo 'Schema in sync'"
+```
+If output shows missing columns or ALTER statements: fix the schema before proceeding.
+
 ## What to build
 [Exact description of what this session produces]
 

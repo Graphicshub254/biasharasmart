@@ -1,0 +1,12 @@
+{
+  "businessId": "7951dda8-a30e-4928-8350-b6c5662154a8",
+  "customerName": "Test Customer",
+  "lineItems": [
+    {
+      "description": "Web Design",
+      "quantity": 1,
+      "unitPrice": 10000,
+      "vatRate": 0.16
+    }
+  ]
+}
