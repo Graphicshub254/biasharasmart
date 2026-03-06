@@ -89,6 +89,23 @@ If reviewing or assisting a teammate:
 - **Payload Reuse:** Keep a `test/payloads/` folder for common JSON bodies.
 - **Alias it:** Add `alias bs-api='yarn workspace @biasharasmart/api'` to your WSL `.bashrc`.
 
+## Session S2.3 Findings
+### Challenges & Solutions
+1. **TypeScript Definition Mismatch**: `expo-notifications` required `shouldShowBanner` and `shouldShowList` in `NotificationBehavior`.
+   - **Solution**: Explicitly added all required properties to the `setNotificationHandler` config.
+2. **Module Circularity**: Needed `NotificationsService` in `InvoicesService` and `ScoreService`.
+   - **Solution**: Imported `NotificationsModule` into the respective feature modules.
+3. **WSL Directory Creation**: Windows-based `create_directory` tool sometimes fails on WSL paths.
+   - **Solution**: Use `wsl -d Ubuntu -- bash -c "mkdir -p ..."` for reliable folder creation.
+4. **Missing Dependencies**: `expo-notifications` and `expo-server-sdk` were not pre-installed.
+   - **Solution**: Run `yarn workspace ... add [pkg]` immediately after reading `GEMINI.md` pre-checks.
+
+### Advice for Next Session (T2.4 — Biashara Loan)
+- **Dependency Audit**: Verify `expo-secure-store` or other local-auth/storage libs are present if building a loan application flow.
+- **Ledger Hooks**: Any loan disbursement or repayment MUST trigger a `Ledger` entry with a valid checksum (Pitfall #3).
+- **Score Gatekeeping**: Reuse the `ScoreService.calculateScore()` logic to check if `total >= 600` before showing the loan application UI.
+- **Shared Types**: Update `packages/shared-types` early if adding `LoanRequest` or `LoanStatus` enums to avoid mobile build breaks.
+
 ## Exit criteria — ALL must pass
 - [ ] [specific testable binary criterion]
 - [ ] [specific testable binary criterion]

@@ -13,6 +13,7 @@ import { AdminModule } from './admin/admin.module';
 import { VatModule } from './vat/vat.module';
 import { ScoreModule } from './score/score.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { ReportsModule } from './reports/reports.module';
 import databaseConfig from './config/database.config';
 
 @Module({
@@ -32,6 +33,7 @@ import databaseConfig from './config/database.config';
     VatModule,
     ScoreModule,
     NotificationsModule,
+    ReportsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -42,6 +42,7 @@ const ui_tokens_1 = require("@biasharasmart/ui-tokens");
 const components_1 = require("../../src/components");
 const network_1 = require("../../src/lib/network");
 const invoice_sync_1 = require("../../src/lib/invoice-sync");
+const notifications_1 = require("../../src/lib/notifications");
 // --- Constants ---
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 // --- Component ---
@@ -66,6 +67,8 @@ function DashboardScreen() {
             const data = await res.json();
             setSummary(data);
             setCachedSummary(data);
+            // Register for push notifications
+            (0, notifications_1.registerForPushNotifications)(data.business.id);
             // Fetch WHT summary
             const whtRes = await fetch(`${API_BASE}/api/payments/wht-summary/${data.business.id}`);
             if (whtRes.ok) {

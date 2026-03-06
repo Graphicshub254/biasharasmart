@@ -1,5 +1,5 @@
-﻿# GEMINI.md — Task Brief: T2.3
-## Task: Push notifications — WHT deadline alerts, KRA sync status, score milestones
+# GEMINI.md — Task Brief: T2.4
+## Task: Reports — P&L, KRA Reconciliation, WHT Statement — one-tap PDF export
 
 ## Environment rules
 - Same as all previous tasks
@@ -7,7 +7,7 @@
 ## Pre-checks
 
 ```powershell
-wsl -d Ubuntu -- bash -c "python3 -c \"import json,pathlib; d=json.loads(pathlib.Path('/home/bishop/projects/biasharasmart/progress.txt').read_text(encoding='utf-8-sig')); print(d['tasks']['T2.2']['status'])\""
+wsl -d Ubuntu -- bash -c "python3 -c \"import json,pathlib; d=json.loads(pathlib.Path('/home/bishop/projects/biasharasmart/progress.txt').read_text(encoding='utf-8-sig')); print(d['tasks']['T2.3']['status'])\""
 wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api build 2>&1 | tail -5"
 ```
 
@@ -15,184 +15,122 @@ wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop
 
 | File | What |
 |---|---|
-| `apps/api/src/notifications/notifications.module.ts` | Notifications module |
-| `apps/api/src/notifications/notifications.service.ts` | Push send logic + scheduler |
-| `apps/api/src/notifications/notifications.controller.ts` | Register token, test send |
-| `apps/api/src/entities/notification-token.entity.ts` | Store Expo push tokens per business |
-| DB migration | `notification_tokens` table |
-| `apps/mobile/src/lib/notifications.ts` | Register + request permissions on app start |
+| `apps/api/src/reports/reports.module.ts` | Reports module |
+| `apps/api/src/reports/reports.service.ts` | Data aggregation for 3 report types |
+| `apps/api/src/reports/reports.controller.ts` | Report endpoints |
+| `apps/mobile/app/reports/index.tsx` | Reports menu screen |
+| `apps/mobile/app/reports/pl.tsx` | P&L report screen + PDF export |
+| `apps/mobile/app/reports/kra.tsx` | KRA Reconciliation report screen + PDF |
+| `apps/mobile/app/reports/wht.tsx` | WHT Statement screen + PDF |
+| `apps/mobile/app/reports/_layout.tsx` | Stack layout |
 
-## Push notification types
+## API endpoints
 
-| Type | When triggered | Message |
-|---|---|---|
-| WHT_DEADLINE_3DAYS | WHT liability due in 3 days | "⚠️ KES {X} WHT due in 3 days. Pay now to avoid KRA penalties." |
-| WHT_DEADLINE_1DAY | WHT liability due tomorrow | "🚨 KES {X} WHT due TOMORROW. Pay immediately." |
-| WHT_OVERDUE | WHT liability now overdue | "❌ KES {X} WHT is OVERDUE. KRA penalties may apply." |
-| KRA_SYNC_SUCCESS | Invoice cu_number returned | "✅ Invoice #{ref} registered with KRA. CU: {cuNumber}" |
-| KRA_SYNC_FAIL | GavaConnect offline queue | "⚠️ Invoice #{ref} KRA sync failed. Will retry when online." |
-| SCORE_MILESTONE | Score crosses 400/600/800 | "🎯 Biashara Score hit {score}! You're now eligible for Co-op Bank loans." |
-| TCC_EXPIRY_30DAYS | TCC expires in 30 days | "⚠️ Your Tax Compliance Certificate expires in 30 days. Renew on iTax." |
+- GET /api/reports/:businessId/pl?month=&year= — P&L summary
+- GET /api/reports/:businessId/kra?month=&year= — KRA reconciliation
+- GET /api/reports/:businessId/wht?month=&year= — WHT statement
 
-## Expo push notifications
-
-Use Expo's push notification service (no Firebase needed for Expo Go).
+## P&L calculation
 
 ```typescript
-// notifications.service.ts
-import Expo from 'expo-server-sdk';
+async getProfitAndLoss(businessId: string, month: number, year: number) {
+  const startDate = new Date(year, month - 1, 1);
+  const endDate = new Date(year, month, 0, 23, 59, 59);
 
-const expo = new Expo();
+  // Revenue: confirmed payments in period
+  const payments = await this.paymentRepo.find({
+    where: { businessId, status: PaymentStatus.CONFIRMED, resolvedAt: Between(startDate, endDate) },
+  });
+  const revenue = payments.reduce((s, p) => s + Number(p.amountKes), 0);
 
-async sendPush(token: string, title: string, body: string, data?: any) {
-  if (!Expo.isExpoPushToken(token)) return;
-  const message = {
-    to: token,
-    sound: 'default',
-    title,
-    body,
-    data: data ?? {},
+  // VAT collected: from paid invoices
+  const invoices = await this.invoiceRepo.find({
+    where: { businessId, status: InvoiceStatus.PAID, updatedAt: Between(startDate, endDate) },
+  });
+  const vatCollected = invoices.reduce((s, i) => s + Number(i.vatAmountKes), 0);
+
+  // WHT deducted: from confirmed payments
+  const whtDeducted = payments.reduce((s, p) => s + Number(p.whtAmountKes), 0);
+
+  // Net revenue
+  const netRevenue = +(revenue - whtDeducted).toFixed(2);
+
+  return {
+    period: { month, year },
+    revenue,
+    vatCollected,
+    whtDeducted,
+    netRevenue,
+    invoiceCount: invoices.length,
+    paymentCount: payments.length,
+    generatedAt: new Date().toISOString(),
   };
-  try {
-    await expo.sendPushNotificationsAsync([message]);
-  } catch (err) {
-    this.logger.error('Push send failed', err);
-  }
 }
 ```
 
-Install expo-server-sdk in API:
-```powershell
-wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api add expo-server-sdk"
-```
-
-## Scheduler — check WHT deadlines daily
-
-Use NestJS @Cron decorator. Run daily at 8AM EAT (5AM UTC):
+## KRA Reconciliation
 
 ```typescript
-import { Cron } from '@nestjs/schedule';
-
-@Cron('0 5 * * *') // 8AM EAT
-async checkWhtDeadlines() {
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const threeDaysOut = new Date();
-  threeDaysOut.setDate(threeDaysOut.getDate() + 3);
-
-  // Find liabilities due in 1 day
-  const dueTomorrow = await this.whtLiabilityRepo.find({
-    where: { status: 'pending', dueDate: Between(new Date(), tomorrow) },
+async getKraReconciliation(businessId: string, month: number, year: number) {
+  // Match each invoice to its M-Pesa payment and CU number
+  const invoices = await this.invoiceRepo.find({
+    where: { businessId, updatedAt: Between(startDate, endDate) },
+    order: { createdAt: 'ASC' },
   });
 
-  // Find liabilities due in 3 days
-  const dueIn3Days = await this.whtLiabilityRepo.find({
-    where: { status: 'pending', dueDate: Between(tomorrow, threeDaysOut) },
-  });
+  const rows = await Promise.all(invoices.map(async inv => {
+    const payment = await this.paymentRepo.findOne({ where: { invoiceId: inv.id, status: PaymentStatus.CONFIRMED } });
+    return {
+      invoiceRef: inv.id.slice(-8).toUpperCase(),
+      cuNumber: inv.cuNumber ?? 'UNREGISTERED',
+      status: inv.status,
+      totalKes: Number(inv.totalKes),
+      vatKes: Number(inv.vatAmountKes),
+      mpesaCode: payment?.mpesaCode ?? 'UNPAID',
+      paymentDate: payment?.resolvedAt ?? null,
+    };
+  }));
 
-  // Send notifications for each
-  for (const liability of dueTomorrow) {
-    await this.sendNotificationForBusiness(liability.businessId, 'WHT_DEADLINE_1DAY', liability.amountKes);
-  }
-  for (const liability of dueIn3Days) {
-    await this.sendNotificationForBusiness(liability.businessId, 'WHT_DEADLINE_3DAYS', liability.amountKes);
-  }
+  const totalVatDue = rows.reduce((s, r) => s + r.vatKes, 0);
+  const unregistered = rows.filter(r => r.cuNumber === 'UNREGISTERED').length;
+
+  return { period: { month, year }, rows, totalVatDue, unregistered, generatedAt: new Date().toISOString() };
 }
 ```
 
-Add `ScheduleModule.forRoot()` to app.module.ts.
+## Mobile reports screens
 
-## Entity
+### app/reports/index.tsx
+- Header "Reports"
+- Month/Year selector (default: current month)
+- Three report cards (TouchableOpacity):
+  - "Profit & Loss" → /reports/pl
+  - "KRA Reconciliation" → /reports/kra
+  - "WHT Statement" → /reports/wht
+- Each card shows last generated date if available
 
+### app/reports/pl.tsx (same pattern for kra.tsx and wht.tsx)
+- Fetch report from API on load
+- Display data in SectionCard components
+- "Export PDF" button at bottom — use expo-print + expo-sharing
+- HTML template for PDF: BiasharaSmart branded, professional format
+- Month/year controls to regenerate for different periods
+
+## Wire into More tab
+
+Add "Reports" to more.tsx menu:
 ```typescript
-@Entity('notification_tokens')
-export class NotificationToken {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
-  @Column({ name: 'business_id' })
-  businessId!: string;
-
-  @Column({ name: 'expo_token', length: 200, unique: true })
-  expoToken!: string;
-
-  @Column({ name: 'device_id', length: 100, nullable: true })
-  deviceId?: string;
-
-  @CreateDateColumn({ name: 'created_at' })
-  createdAt!: Date;
-}
-```
-
-DB migration:
-```sql
-CREATE TABLE IF NOT EXISTS notification_tokens (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  business_id UUID NOT NULL REFERENCES businesses(id),
-  expo_token VARCHAR(200) NOT NULL UNIQUE,
-  device_id VARCHAR(100),
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_notification_tokens_business_id ON notification_tokens(business_id);
-```
-
-## Mobile: register for notifications
-
-apps/mobile/src/lib/notifications.ts
-
-```typescript
-import * as Notifications from 'expo-notifications';
-import Constants from 'expo-constants';
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
-
-export async function registerForPushNotifications(businessId: string): Promise<void> {
-  const { status: existingStatus } = await Notifications.getPermissionsAsync();
-  let finalStatus = existingStatus;
-  if (existingStatus !== 'granted') {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
-  }
-  if (finalStatus !== 'granted') return;
-
-  const token = (await Notifications.getExpoPushTokenAsync({
-    projectId: Constants.expoConfig?.extra?.eas?.projectId,
-  })).data;
-
-  await fetch(`${API_BASE}/api/notifications/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ businessId, expoToken: token }),
-  });
-}
-```
-
-Call `registerForPushNotifications(BUSINESS_ID)` in dashboard.tsx useEffect.
-
-## Controller
-
-```typescript
-@Controller('notifications')
-export class NotificationsController {
-  @Post('register')
-  register(@Body() dto: { businessId: string; expoToken: string }) {
-    return this.notificationsService.registerToken(dto.businessId, dto.expoToken);
-  }
-
-  @Post('test/:businessId')
-  testPush(@Param('businessId') businessId: string) {
-    return this.notificationsService.sendTestNotification(businessId);
-  }
-}
+{ label: 'Reports', icon: 'assessment', route: '/reports' }
 ```
 
 ## Exit criteria
-- [ ] notification_tokens table created
-- [ ] POST /api/notifications/register stores Expo token
-- [ ] @Cron job runs at 5AM UTC — checks WHT deadlines, sends push
-- [ ] expo-server-sdk installed in API
-- [ ] mobile notifications.ts registers token on dashboard load
-- [ ] API build: zero errors, mobile tsc: zero errors
+- [ ] GET /api/reports/:businessId/pl returns revenue, VAT, WHT, net
+- [ ] GET /api/reports/:businessId/kra returns invoice-payment reconciliation rows
+- [ ] GET /api/reports/:businessId/wht returns WHT liability statement
+- [ ] app/reports/index.tsx shows 3 report options with month selector
+- [ ] Each report screen exports PDF via expo-print
+- [ ] More tab has Reports link
+- [ ] API + mobile: zero errors
 
 ## On completion
 
@@ -200,11 +138,11 @@ export class NotificationsController {
 $p = "\\wsl$\Ubuntu\home\bishop\projects\biasharasmart\progress.txt"
 $raw = [System.IO.File]::ReadAllText($p).TrimStart([char]0xFEFF)
 $d = $raw | ConvertFrom-Json
-$d.tasks.'T2.3'.status = "complete"
-$d.tasks.'T2.3'.notes = "T2.3 COMPLETE: Push notifications. WHT deadline alerts (1day, 3day, overdue), KRA sync, score milestone. Expo push tokens stored. Daily cron scheduler. Mobile registers token on load."
-$d.current_task = "T2.4"
+$d.tasks.'T2.4'.status = "complete"
+$d.tasks.'T2.4'.notes = "T2.4 COMPLETE: Reports — P&L, KRA Reconciliation, WHT Statement. All 3 API endpoints. PDF export via expo-print. Reports menu screen with month selector. More tab wired."
+$d.current_task = "T3.1"
+$d.current_phase = 3
 [System.IO.File]::WriteAllText($p, ($d | ConvertTo-Json -Depth 10), [System.Text.Encoding]::UTF8)
-wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git add -A && git --no-pager commit -m 'T2.3: Push notifications — WHT deadline alerts + score milestones + cron scheduler'"
+wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git add -A && git --no-pager commit -m 'T2.4: Reports — P&L + KRA Reconciliation + WHT Statement + PDF export'"
 wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git push origin main"
-Write-Host "T2.3 COMPLETE"
-```
+Write-Host "T2.4 COMPLETE — PHASE 2 DONE"
