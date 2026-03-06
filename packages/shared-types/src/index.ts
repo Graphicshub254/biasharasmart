@@ -101,6 +101,7 @@ export interface Payment {
   amountKes: number;
   mpesaRef?: string;
   status: string;
+  phoneNumber?: string;
   whtAmountKes: number;
   whtStatus: WhtStatus;
   paymentFlow: PaymentFlow;

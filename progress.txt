@@ -3,7 +3,7 @@
     "version":  "1.0",
     "last_updated":  "2026-03-06T10:00:00.000000+00:00",
     "current_phase":  1,
-    "current_task":  "T1.4",
+    "current_task":  "T1.5",
     "execution_environment":  {
                                   "gemini_runs_on":  "Windows PowerShell",
                                   "linux_commands_via":  "wsl -d Ubuntu --",
@@ -59,9 +59,9 @@
                                "notes":  "T1.3 COMPLETE: 5 API endpoints, invoice list+create+detail+PDF share, offline queue auto-sync on reconnect. Full flow tested. tsc clean on both workspaces."
                            },
                   "T1.4":  {
-                               "status":  "in_progress",
+                               "status":  "complete",
                                "session":  "S08",
-                               "notes":  "Pre-T1.4 schema refactor complete: wht_liabilities table, payment_mode+bia_score on businesses, wht_amount_kes+wht_status+payment_flow on payments. WHT constants in shared-types. All 3 workspaces build clean."
+                               "notes":  "T1.4 COMPLETE: Dual-arch payments. Legacy: M-Pesa reconcile, 5pct WHT liability, ledger. Gateway: STK push sandbox, Daraja webhook, ledger. WHT summary. Payments+confirm screens. Dashboard WHT+BiaScore tiles + gateway upsell. tsc clean."
                            },
                   "T1.5":  {
                                "status":  "not_started",

@@ -22,7 +22,7 @@ import {
   ActionButton,
 } from '../../src/components';
 import { useNetworkStatus } from '../../src/lib/network';
-import { DashboardSummary } from '@biasharasmart/shared-types';
+import { DashboardSummary, WhtSummary } from '@biasharasmart/shared-types';
 import { useInvoiceSync } from '../../src/lib/invoice-sync';
 
 // --- Constants ---
@@ -38,6 +38,7 @@ export default function DashboardScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [whtSummary, setWhtSummary] = useState<WhtSummary | null>(null);
   const [cachedSummary, setCachedSummary] = useState<DashboardSummary | null>(null);
   const [isBlurred, setIsBlurred] = useState(false);
 
@@ -51,6 +52,13 @@ export default function DashboardScreen() {
       const data: DashboardSummary = await res.json();
       setSummary(data);
       setCachedSummary(data);
+
+      // Fetch WHT summary
+      const whtRes = await fetch(`${API_BASE}/api/payments/wht-summary/${data.business.id}`);
+      if (whtRes.ok) {
+        const whtData: WhtSummary = await whtRes.json();
+        setWhtSummary(whtData);
+      }
     } catch (error) {
       console.error('Dashboard fetch error:', error);
       if (cachedSummary) {
@@ -188,7 +196,34 @@ export default function DashboardScreen() {
               isLoading={loading}
             />
           </View>
+          <View style={styles.metricRow}>
+            <MetricTile
+              label="WHT Due"
+              value={whtSummary?.totalPending || 0}
+              unit="KES"
+              accentColor={(whtSummary?.overdueCount || 0) > 0 ? colors.red : colors.gold}
+              isLoading={loading}
+            />
+            <MetricTile
+              label="Bia Score"
+              value={420}
+              unit="/ 1000"
+              accentColor={colors.cobalt}
+              isLoading={loading}
+            />
+          </View>
         </View>
+
+        {/* Gateway Upsell Banner */}
+        {whtSummary?.paymentMode === 'legacy' && (
+          <AlertBanner
+            type="warning"
+            title="Switch to Gateway"
+            message="WHT auto-handled. Bia Score +100 pts."
+            actionLabel="Upgrade Now"
+            onAction={() => router.push('/(tabs)/payments')}
+          />
+        )}
 
         {/* TCC Status */}
         {tccConfig && (

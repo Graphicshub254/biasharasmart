@@ -1,396 +1,269 @@
-﻿# GEMINI.md — Task Brief: Schema Refactor (Pre-T1.4)
-## Task: Add WHT dual-architecture columns + wht_liabilities table
-
----
+﻿# GEMINI.md — Task Brief: T1.4
+## Task: M-Pesa Dual-Architecture — Legacy Reconciliation + Gateway STK Push + WHT Engine
 
 ## Environment rules
-- You run on **Windows PowerShell**
+- Windows PowerShell host, WSL Ubuntu guest
 - All Linux commands: `wsl -d Ubuntu -- <cmd>`
 - Yarn binary: `/home/bishop/.npm-global/bin/yarn`
 - Project WSL path: `/home/bishop/projects/biasharasmart`
-- Write files via write_file tool only — never heredoc for TypeScript/SQL
-- JSON payloads: write to `/tmp/req.json` first, then `curl -d @/tmp/req.json`
-- **Never use pip, find /, or interactive shells**
-- **Always use `git --no-pager`**
-
----
+- Write TypeScript files using write_file tool ONLY — never heredoc
+- JSON payloads: write to /tmp/file.json first, then curl -d @/tmp/file.json
+- Always use git --no-pager for git commands
+- Always add \pset pager off to psql commands
+- Never use pip, find /, or interactive shells
 
 ## Pre-checks
 
 ```powershell
-# 1. T1.3 complete
-wsl -d Ubuntu -- bash -c "python3 -c \"import json,pathlib; d=json.loads(pathlib.Path('/home/bishop/projects/biasharasmart/progress.txt').read_text(encoding='utf-8-sig')); print(d['tasks']['T1.3']['status'])\""
+# 1. Schema verified
+wsl -d Ubuntu -- bash -c "psql postgresql://biasharasmart:devpass@localhost:5432/biasharasmart_dev -c '\pset pager off' -c 'SELECT payment_mode, bia_score FROM businesses LIMIT 1;'"
 ```
-Expected: `complete`
+Expected: legacy | 0
 
 ```powershell
-# 2. Both builds clean
+# 2. Builds clean
 wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api build 2>&1 | tail -5"
 wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/mobile tsc --noEmit 2>&1 | tail -5"
 ```
 
 ```powershell
-# 3. Confirm current DB columns
-wsl -d Ubuntu -- bash -c "psql -U postgres -d biasharasmart -c '\d businesses' 2>/dev/null || psql biasharasmart -c '\d businesses'"
-wsl -d Ubuntu -- bash -c "psql -U postgres -d biasharasmart -c '\d payments' 2>/dev/null || psql biasharasmart -c '\d payments'"
-```
-
-```powershell
-# 4. Read current entities
-wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/api/src/entities/business.entity.ts"
+# 3. Read files before writing any code
 wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/api/src/entities/payment.entity.ts"
+wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/api/src/entities/wht-liability.entity.ts"
+wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/api/src/entities/business.entity.ts"
+wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/mobile/src/components/TransactionRow/TransactionRow.tsx"
+wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/mobile/src/components/AlertBanner/AlertBanner.tsx"
 wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/packages/shared-types/src/index.ts"
 ```
 
----
+## Architecture
 
-## What this brief does
+Two flows live in the same app:
 
-Adds the WHT dual-architecture foundation to the DB and entities before T1.4 payment code is written:
+Flow A (Legacy/Observer): Merchant keeps existing Till. App reconciles M-Pesa code manually entered, calculates 5% WHT as pending liability. Red warning shown on dashboard. Merchant must pay KRA manually within 5 days.
 
-| Change | Why |
-|---|---|
-| `payment_mode` on businesses | Track legacy Till vs Gateway flow |
-| `bia_score` on businesses | Biashara Score credit engine seed |
-| `wht_amount_kes` on payments | Store calculated 5% WHT per payment |
-| `wht_status` on payments | pending / escrowed / remitted |
-| `payment_flow` on payments | legacy / gateway |
-| `mpesa_code` on payments | M-Pesa receipt number from webhook |
-| `escrow_ref` on payments | Co-op escrow reference (gateway only) |
-| New table: `wht_liabilities` | Tracks outstanding WHT for legacy merchants |
-| WHT constants in shared-types | Single source of truth for 5% rate |
+Flow B (Gateway/Controller): App controls STK push. WHT split automatic. No manual work for merchant.
 
----
+The WHT liability pain in Flow A is the upsell trigger toward Flow B.
 
-## Step 1 — Run DB migration
+## Part 1 — NestJS PaymentsModule
 
-Write this SQL to `/tmp/wht_migration.sql` first, then execute it:
-
-```sql
--- Migration: WHT dual-architecture
--- Safe to run multiple times (uses IF NOT EXISTS / DO blocks)
-
--- 1. Add payment_mode to businesses
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name='businesses' AND column_name='payment_mode'
-  ) THEN
-    ALTER TABLE businesses ADD COLUMN payment_mode VARCHAR(20) DEFAULT 'legacy';
-  END IF;
-END $$;
-
--- 2. Add bia_score to businesses
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name='businesses' AND column_name='bia_score'
-  ) THEN
-    ALTER TABLE businesses ADD COLUMN bia_score INTEGER DEFAULT 0;
-  END IF;
-END $$;
-
--- 3. Add co_op_virtual_account to businesses
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name='businesses' AND column_name='co_op_virtual_account'
-  ) THEN
-    ALTER TABLE businesses ADD COLUMN co_op_virtual_account VARCHAR(100);
-  END IF;
-END $$;
-
--- 4. Add wht_amount_kes to payments
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name='payments' AND column_name='wht_amount_kes'
-  ) THEN
-    ALTER TABLE payments ADD COLUMN wht_amount_kes NUMERIC(15,2) DEFAULT 0;
-  END IF;
-END $$;
-
--- 5. Add wht_status to payments
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name='payments' AND column_name='wht_status'
-  ) THEN
-    ALTER TABLE payments ADD COLUMN wht_status VARCHAR(20) DEFAULT 'pending';
-  END IF;
-END $$;
-
--- 6. Add payment_flow to payments
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name='payments' AND column_name='payment_flow'
-  ) THEN
-    ALTER TABLE payments ADD COLUMN payment_flow VARCHAR(20) DEFAULT 'legacy';
-  END IF;
-END $$;
-
--- 7. Add mpesa_code to payments
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name='payments' AND column_name='mpesa_code'
-  ) THEN
-    ALTER TABLE payments ADD COLUMN mpesa_code VARCHAR(50);
-  END IF;
-END $$;
-
--- 8. Add escrow_ref to payments
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name='payments' AND column_name='escrow_ref'
-  ) THEN
-    ALTER TABLE payments ADD COLUMN escrow_ref VARCHAR(100);
-  END IF;
-END $$;
-
--- 9. Create wht_liabilities table
-CREATE TABLE IF NOT EXISTS wht_liabilities (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  business_id UUID NOT NULL REFERENCES businesses(id),
-  payment_id UUID REFERENCES payments(id),
-  amount_kes NUMERIC(15,2) NOT NULL,
-  due_date TIMESTAMPTZ NOT NULL,
-  status VARCHAR(20) DEFAULT 'pending',
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 10. Indexes
-CREATE INDEX IF NOT EXISTS idx_wht_liabilities_business_id ON wht_liabilities(business_id);
-CREATE INDEX IF NOT EXISTS idx_wht_liabilities_status ON wht_liabilities(status);
-CREATE INDEX IF NOT EXISTS idx_wht_liabilities_due_date ON wht_liabilities(due_date);
-CREATE INDEX IF NOT EXISTS idx_businesses_payment_mode ON businesses(payment_mode);
-CREATE INDEX IF NOT EXISTS idx_payments_wht_status ON payments(wht_status);
-CREATE INDEX IF NOT EXISTS idx_payments_payment_flow ON payments(payment_flow);
-```
-
-Execute:
+Create directory:
 ```powershell
-wsl -d Ubuntu -- bash -c "psql -U postgres -d biasharasmart -f /tmp/wht_migration.sql 2>/dev/null || psql biasharasmart -f /tmp/wht_migration.sql"
+wsl -d Ubuntu -- bash -c "mkdir -p /home/bishop/projects/biasharasmart/apps/api/src/payments/dto"
 ```
 
-Verify:
+### DTOs
+
+apps/api/src/payments/dto/initiate-payment.dto.ts
+- invoiceId: string (IsUUID)
+- phone: string (Matches /^254[0-9]{9}$/)
+
+apps/api/src/payments/dto/reconcile-payment.dto.ts
+- businessId: string (IsUUID)
+- invoiceId: string (IsUUID)
+- mpesaCode: string (IsString)
+- amountKes: number (IsNumber, Min 1)
+- phone: string (IsString)
+
+### Daraja service
+
+apps/api/src/payments/daraja.service.ts
+
+Separate from onboarding/daraja.service.ts — do not touch that file.
+
+Sandbox (default when DARAJA_ENV unset):
+- initiateSTKPush returns { checkoutRequestId: ws_CO_{timestamp}_{random}, responseCode: '0' }
+- getAccessToken returns 'sandbox-token'
+
+Production: implement using DARAJA_SHORTCODE, DARAJA_PASSKEY, DARAJA_BASE_URL, DARAJA_CONSUMER_KEY, DARAJA_CONSUMER_SECRET env vars.
+
+### Payments service
+
+apps/api/src/payments/payments.service.ts
+
+Import WHT_RATE and WHT_REMITTANCE_DAYS from @biasharasmart/shared-types.
+Inject: Payment repo, Invoice repo, Business repo, WhtLiability repo, Ledger repo, DarajaPaymentsService.
+
+Method 1: initiateGatewayPayment(dto)
+1. Fetch invoice, throw NotFoundException if missing
+2. total = Number(invoice.totalKes)
+3. whtAmount = +(total * WHT_RATE).toFixed(2)
+4. merchantAmount = +(total - whtAmount).toFixed(2)
+5. Create Payment: paymentFlow='gateway', whtStatus='pending', whtAmountKes=whtAmount, status=PENDING, idempotencyKey=gateway_{invoiceId}_{Date.now()}
+6. Call darajaService.initiateSTKPush for FULL amount
+7. Save checkoutRequestId as mpesaTransactionId on payment
+8. Return { checkoutRequestId, whtAmountKes, merchantAmountKes, message }
+
+Method 2: reconcileLegacyPayment(dto)
+1. Check mpesaCode idempotency — throw ConflictException if already exists
+2. whtAmount = +(dto.amountKes * WHT_RATE).toFixed(2)
+3. Save Payment: paymentFlow='legacy', whtStatus='pending', whtAmountKes=whtAmount, mpesaCode=dto.mpesaCode, status=CONFIRMED, resolvedAt=now, idempotencyKey=legacy_{mpesaCode}
+4. Write Ledger: entryType='payment_received', amountKes=dto.amountKes, checksum=legacy_{mpesaCode}_{Date.now()}, metadata={mpesaCode, whtAmount, flow:'legacy'}
+5. Update invoice to PAID
+6. Create WhtLiability: amountKes=whtAmount, dueDate=now+WHT_REMITTANCE_DAYS days, status=PENDING
+7. Return { payment, whtLiability }
+
+Method 3: handleDarajaWebhook(body)
+1. Extract CheckoutRequestID, ResultCode, CallbackMetadata from body.Body.stkCallback
+2. Find payment by mpesaTransactionId — return silently if not found
+3. ResultCode===0: status=CONFIRMED, mpesaCode from metadata Item MpesaReceiptNumber, whtStatus='escrowed', resolvedAt=now, write ledger, update invoice to PAID
+4. ResultCode!==0: status=FAILED
+5. Save payment
+
+Method 4: getWhtSummary(businessId)
+1. Fetch business, throw NotFoundException if missing
+2. Find pending WhtLiabilities, order dueDate ASC
+3. Sum totalPending, count overdueCount (dueDate < now)
+4. Return { totalPending, overdueCount, nextDueDate, paymentMode: business.paymentMode }
+
+Method 5: listPayments(businessId)
+- findAndCount by businessId, order createdAt DESC, take 20
+- Return { data, total }
+
+### Controller
+
+apps/api/src/payments/payments.controller.ts
+
+Route order is critical — define exactly in this order:
+1. POST gateway/initiate
+2. POST legacy/reconcile
+3. POST webhook/daraja (HttpCode 200)
+4. GET wht-summary/:businessId
+5. GET :businessId
+
+### Module
+
+apps/api/src/payments/payments.module.ts
+
+Imports: TypeOrmModule.forFeature([Payment, Invoice, Business, WhtLiability]) + OnboardingModule
+Providers: PaymentsService, DarajaPaymentsService
+Exports: PaymentsService
+
+Read app.module.ts first, then add PaymentsModule to imports array.
+
+Check how Ledger entity is registered — if it's in a DatabaseModule, import that. If not, add Ledger to forFeature array.
+
+## Part 2 — Mobile screens
+
+### apps/mobile/app/payments/_layout.tsx
+Stack navigator, headerShown: false. Same pattern as invoices/_layout.tsx.
+
+### apps/mobile/app/(tabs)/payments.tsx
+Replace placeholder entirely. Read AlertBanner and TransactionRow props before writing.
+
+Layout top to bottom:
+1. Header "Payments"
+2. WHT AlertBanner (only if totalPending > 0): variant=error if overdueCount>0 else warning, message="WHT Due: KES {totalPending}"
+3. Gateway upsell AlertBanner (only if paymentMode==='legacy'): variant=warning, message="Switch to Gateway — WHT auto-handled. Bia Score +100 pts."
+4. TransactionRow list of payments
+5. FAB "Collect Payment" → router.push('/payments/confirm')
+6. Empty state text
+
+Fetch: Promise.all for payments list and wht-summary.
+
+### apps/mobile/app/payments/confirm.tsx
+Two tabs: STK Push | Manual Reconcile
+
+STK Push tab:
+- Phone input 254XXXXXXXXX
+- Invoice ID input (pre-filled from ?invoiceId= query param)
+- Invoice summary card + WHT breakdown when invoiceId set
+- "Send STK Push" → POST /api/payments/gateway/initiate
+- Success: poll GET /api/invoices/:id every 3s up to 60s, on paid → router.replace('/(tabs)/payments')
+
+Manual Reconcile tab:
+- M-Pesa Code input
+- Amount KES input
+- Invoice ID input
+- "Reconcile" → POST /api/payments/legacy/reconcile
+- Success: show "WHT liability of KES X created — due in 5 days"
+
+## Part 3 — Dashboard additions
+
+Read dashboard.tsx top 80 lines first:
 ```powershell
-wsl -d Ubuntu -- bash -c "psql -U postgres -d biasharasmart -c '\d businesses' 2>/dev/null || psql biasharasmart -c '\d businesses'"
-wsl -d Ubuntu -- bash -c "psql -U postgres -d biasharasmart -c '\d payments' 2>/dev/null || psql biasharasmart -c '\d payments'"
-wsl -d Ubuntu -- bash -c "psql -U postgres -d biasharasmart -c '\d wht_liabilities' 2>/dev/null || psql biasharasmart -c '\d wht_liabilities'"
+wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/mobile/app/\(tabs\)/dashboard.tsx | head -80"
 ```
 
----
+Add:
+1. Fetch wht-summary alongside dashboard fetch
+2. 5th MetricTile: label="WHT Due", value=whtSummary.totalPending, unit="KES", accentColor=overdueCount>0 ? colors.red : colors.gold
+3. 6th MetricTile: label="Bia Score", value=420 (hardcoded), unit="/ 1000", accentColor=colors.cobalt
+4. AlertBanner below tiles: show only if paymentMode==='legacy', variant=warning, message="Switch to Gateway — WHT auto-handled. Bia Score +100 pts.", action → router.push('/(tabs)/payments')
 
-## Step 2 — Update Business entity
-
-File: `apps/api/src/entities/business.entity.ts`
-
-Add these columns after `kycStatus`:
-
-```typescript
-@Column({ name: 'payment_mode', length: 20, default: 'legacy' })
-paymentMode!: string; // 'legacy' | 'gateway'
-
-@Column({ name: 'bia_score', type: 'int', default: 0 })
-biaScore!: number;
-
-@Column({ name: 'co_op_virtual_account', length: 100, nullable: true })
-coOpVirtualAccount?: string;
-```
-
----
-
-## Step 3 — Update Payment entity
-
-File: `apps/api/src/entities/payment.entity.ts`
-
-Add these columns after `resolvedAt`:
-
-```typescript
-@Column({ name: 'wht_amount_kes', type: 'numeric', precision: 15, scale: 2, default: 0 })
-whtAmountKes!: number;
-
-@Column({ name: 'wht_status', length: 20, default: 'pending' })
-whtStatus!: string; // 'pending' | 'escrowed' | 'remitted'
-
-@Column({ name: 'payment_flow', length: 20, default: 'legacy' })
-paymentFlow!: string; // 'legacy' | 'gateway'
-
-@Column({ name: 'mpesa_code', length: 50, nullable: true })
-mpesaCode?: string;
-
-@Column({ name: 'escrow_ref', length: 100, nullable: true })
-escrowRef?: string;
-```
-
----
-
-## Step 4 — Create WhtLiability entity
-
-File: `apps/api/src/entities/wht-liability.entity.ts`
-
-```typescript
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
-import { Business } from './business.entity';
-import { Payment } from './payment.entity';
-
-export enum WhtLiabilityStatus {
-  PENDING = 'pending',
-  PAID = 'paid',
-  OVERDUE = 'overdue',
-}
-
-@Entity('wht_liabilities')
-export class WhtLiability {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
-  @Column({ name: 'business_id' })
-  businessId!: string;
-
-  @ManyToOne(() => Business)
-  @JoinColumn({ name: 'business_id' })
-  business!: Business;
-
-  @Column({ name: 'payment_id', nullable: true })
-  paymentId?: string;
-
-  @ManyToOne(() => Payment)
-  @JoinColumn({ name: 'payment_id' })
-  payment?: Payment;
-
-  @Column({ name: 'amount_kes', type: 'numeric', precision: 15, scale: 2 })
-  amountKes!: number;
-
-  @Column({ name: 'due_date', type: 'timestamptz' })
-  dueDate!: Date;
-
-  @Column({
-    type: 'varchar',
-    length: 20,
-    default: WhtLiabilityStatus.PENDING,
-  })
-  status!: WhtLiabilityStatus;
-
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
-  createdAt!: Date;
-
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
-  updatedAt!: Date;
-}
-```
-
----
-
-## Step 5 — Register WhtLiability in app.module.ts
-
-Read app.module.ts first:
-```powershell
-wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/api/src/app.module.ts"
-```
-
-Add `WhtLiability` to the `entities` array in the TypeORM config. Do not remove any existing entities.
-
----
-
-## Step 6 — Update shared-types with WHT constants
-
-Read current shared-types:
-```powershell
-wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/packages/shared-types/src/index.ts"
-```
-
-Add at the top of the file after imports:
-
-```typescript
-// ─── WHT Constants ───────────────────────────────────────────────────────────
-export const WHT_RATE = 0.05;              // 5% Withholding Tax rate
-export const WHT_REMITTANCE_DAYS = 5;      // 5-day rolling window for KRA remittance
-export const VAT_RATE_STANDARD = 0.16;     // 16% standard VAT
-export const VAT_RATE_ZERO = 0;            // Zero-rated VAT
-
-// ─── Payment flow types ───────────────────────────────────────────────────────
-export type PaymentMode = 'legacy' | 'gateway';
-export type WhtStatus = 'pending' | 'escrowed' | 'remitted';
-export type PaymentFlow = 'legacy' | 'gateway';
-
-// ─── WHT Liability ────────────────────────────────────────────────────────────
-export interface WhtLiability {
-  id: string;
-  businessId: string;
-  paymentId?: string;
-  amountKes: number;
-  dueDate: string;
-  status: 'pending' | 'paid' | 'overdue';
-  createdAt: string;
-  updatedAt: string;
-}
-
-// ─── WHT Dashboard summary ────────────────────────────────────────────────────
-export interface WhtSummary {
-  totalPending: number;      // total KES owed to KRA
-  overdueCount: number;      // count of overdue liabilities
-  nextDueDate: string | null; // earliest due date
-  paymentMode: PaymentMode;  // current business payment mode
-}
-```
-
-Also rebuild shared-types:
-```powershell
-wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/shared-types build 2>&1 | tail -5"
-```
-
----
-
-## Step 7 — Update initial_schema.sql
-
-Append the migration SQL to `apps/api/src/migrations/initial_schema.sql` so it stays as source of truth. Read the file first, then append — do not overwrite the existing content.
-
----
-
-## Step 8 — Build and verify
+## Part 4 — Build and test
 
 ```powershell
 wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api build 2>&1 | tail -10"
-wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/mobile tsc --noEmit 2>&1 | tail -5"
 ```
 
-Verify new columns in DB:
+Start API:
 ```powershell
-wsl -d Ubuntu -- bash -c "psql -U postgres -d biasharasmart -c 'SELECT payment_mode, bia_score FROM businesses LIMIT 2;' 2>/dev/null || psql biasharasmart -c 'SELECT payment_mode, bia_score FROM businesses LIMIT 2;'"
-wsl -d Ubuntu -- bash -c "psql -U postgres -d biasharasmart -c 'SELECT COUNT(*) FROM wht_liabilities;' 2>/dev/null || psql biasharasmart -c 'SELECT COUNT(*) FROM wht_liabilities;'"
+Start-Job -ScriptBlock { wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api start:dev 2>&1" }
+Start-Sleep -Seconds 25
+wsl -d Ubuntu -- bash -c "curl -s http://localhost:3000/api/dashboard/summary | python3 -c 'import json,sys; print(\"OK\", json.load(sys.stdin)[\"business\"][\"name\"])'"
 ```
 
----
+Get invoice ID:
+```powershell
+wsl -d Ubuntu -- bash -c "curl -s 'http://localhost:3000/api/invoices?businessId=7951dda8-a30e-4928-8350-b6c5662154a8' | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[\"data\"][0][\"id\"] if d[\"data\"] else \"NO_INVOICES\")'"
+```
+
+Test legacy reconcile — use python3 to write payload (no quoting issues):
+```powershell
+wsl -d Ubuntu -- bash -c "python3 -c \"import json; open('/tmp/reconcile.json','w').write(json.dumps({'businessId':'7951dda8-a30e-4928-8350-b6c5662154a8','invoiceId':'REPLACE_ID','mpesaCode':'QGH2XK8L9P','amountKes':11600,'phone':'254712345678'}))\""
+wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/payments/legacy/reconcile -H 'Content-Type: application/json' -d @/tmp/reconcile.json | python3 -m json.tool"
+```
+
+Expected: payment.whtAmountKes=580, whtLiability.amountKes=580
+
+Test WHT summary:
+```powershell
+wsl -d Ubuntu -- bash -c "curl -s http://localhost:3000/api/payments/wht-summary/7951dda8-a30e-4928-8350-b6c5662154a8 | python3 -m json.tool"
+```
+
+Expected: totalPending=580, overdueCount=0, paymentMode=legacy
+
+Test idempotency (same mpesaCode — must return 409):
+```powershell
+wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/payments/legacy/reconcile -H 'Content-Type: application/json' -d @/tmp/reconcile.json | python3 -m json.tool"
+```
+
+Test gateway initiate:
+```powershell
+wsl -d Ubuntu -- bash -c "python3 -c \"import json; open('/tmp/gateway.json','w').write(json.dumps({'invoiceId':'REPLACE_ID','phone':'254712345678'}))\""
+wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/payments/gateway/initiate -H 'Content-Type: application/json' -d @/tmp/gateway.json | python3 -m json.tool"
+```
+
+Expected: checkoutRequestId=ws_CO_..., whtAmountKes=580, merchantAmountKes=11020
+
+Mobile tsc:
+```powershell
+wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/mobile tsc --noEmit 2>&1 | tail -10"
+```
 
 ## Exit criteria — ALL must pass
 
-- [ ] `businesses` table has `payment_mode`, `bia_score`, `co_op_virtual_account` columns
-- [ ] `payments` table has `wht_amount_kes`, `wht_status`, `payment_flow`, `mpesa_code`, `escrow_ref` columns
-- [ ] `wht_liabilities` table exists with all columns and indexes
-- [ ] `wht-liability.entity.ts` created
-- [ ] `Business` entity updated with 3 new columns
-- [ ] `Payment` entity updated with 5 new columns
-- [ ] `WhtLiability` registered in app.module.ts
-- [ ] `shared-types` has WHT constants and WhtLiability interface
-- [ ] `shared-types` build: zero errors
-- [ ] `api` build: zero errors
-- [ ] `mobile` tsc: zero errors
-- [ ] `initial_schema.sql` updated with migration SQL
-
----
+- [ ] POST /api/payments/gateway/initiate returns checkoutRequestId + whtAmountKes
+- [ ] POST /api/payments/legacy/reconcile creates payment + wht_liability at exactly 5% WHT
+- [ ] GET /api/payments/wht-summary/:businessId returns totalPending, overdueCount, paymentMode
+- [ ] POST /api/payments/webhook/daraja processes callback, updates invoice to paid, writes ledger
+- [ ] Duplicate mpesaCode returns 409 ConflictException
+- [ ] WHT uses WHT_RATE from shared-types (not hardcoded)
+- [ ] app/(tabs)/payments.tsx not a placeholder — shows WHT alert + upsell banner
+- [ ] app/payments/confirm.tsx has STK Push tab + Manual Reconcile tab
+- [ ] Dashboard has WHT Due + Bia Score tiles + gateway AlertBanner
+- [ ] API build: zero errors
+- [ ] Mobile tsc: zero errors
 
 ## Do NOT do
-- Do not build any payment screens — that is T1.4
-- Do not use synchronize: true on TypeORM
+- Do not build TCC screen — T1.5
+- Do not implement real Co-op escrow — sandbox only
+- Do not use synchronize: true
+- Do not use heredoc for file writes
 - Do not use find /
-- Do not use heredoc for file writes — use write_file tool
-
----
+- Do not use bare git diff
 
 ## On completion
 
@@ -398,9 +271,11 @@ wsl -d Ubuntu -- bash -c "psql -U postgres -d biasharasmart -c 'SELECT COUNT(*) 
 $p = "\\wsl$\Ubuntu\home\bishop\projects\biasharasmart\progress.txt"
 $raw = [System.IO.File]::ReadAllText($p).TrimStart([char]0xFEFF)
 $d = $raw | ConvertFrom-Json
-$d.tasks.'T1.4'.notes = "Pre-T1.4 schema refactor complete: wht_liabilities table, payment_mode+bia_score on businesses, wht_amount_kes+wht_status+payment_flow on payments. WHT constants in shared-types. All 3 workspaces build clean."
+$d.tasks.'T1.4'.status = "complete"
+$d.tasks.'T1.4'.notes = "T1.4 COMPLETE: Dual-arch payments. Legacy: M-Pesa reconcile, 5pct WHT liability, ledger. Gateway: STK push sandbox, Daraja webhook, ledger. WHT summary. Payments+confirm screens. Dashboard WHT+BiaScore tiles + gateway upsell. tsc clean."
+$d.current_task = "T1.5"
 [System.IO.File]::WriteAllText($p, ($d | ConvertTo-Json -Depth 10), [System.Text.Encoding]::UTF8)
-wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git add -A && git --no-pager commit -m 'Schema refactor: WHT dual-architecture foundation (wht_liabilities, payment_mode, bia_score)'"
+wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git add -A && git --no-pager commit -m 'T1.4: M-Pesa dual-architecture — legacy WHT liability + gateway STK push + WHT dashboard widget'"
 wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git push origin main"
-Write-Host "SCHEMA REFACTOR COMPLETE — READY FOR T1.4"
+Write-Host "T1.4 COMPLETE"
 ```

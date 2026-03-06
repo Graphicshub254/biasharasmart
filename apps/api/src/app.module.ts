@@ -6,6 +6,7 @@ import { DatabaseModule } from './database/database.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { InvoicesModule } from './invoices/invoices.module';
+import { PaymentsModule } from './payments/payments.module';
 import databaseConfig from './config/database.config';
 
 @Module({
@@ -18,6 +19,7 @@ import databaseConfig from './config/database.config';
     OnboardingModule,
     DashboardModule,
     InvoicesModule,
+    PaymentsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
