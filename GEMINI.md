@@ -1,246 +1,281 @@
-﻿# GEMINI.md — Task Brief: T3.1
-## Task: Micro-Payroll — employee management, daily wages, SHIF/NSSF statutory deductions, B2C disbursement
+﻿  # GEMINI.md — Task Brief: T3.2
+## Task: USSD Gateway — Africa's Talking integration, feature phone menu, invoice + payment via USSD
 
 ## Environment rules
-- Windows PowerShell host, WSL Ubuntu guest
-- All Linux commands: `wsl -d Ubuntu -- <cmd>`
-- Yarn: `/home/bishop/.npm-global/bin/yarn`
-- write_file tool only for TypeScript — never heredoc
-- JSON payloads via python3 to /tmp/file.json
-- git --no-pager always
-- \pset pager off for psql
+- Same as all previous tasks
+- AT sandbox credentials are in .env: AT_USERNAME, AT_API_KEY, AT_USSD_CODE
 
 ## Pre-checks
 
 ```powershell
-wsl -d Ubuntu -- bash -c "python3 -c \"import json,pathlib; d=json.loads(pathlib.Path('/home/bishop/projects/biasharasmart/progress.txt').read_text(encoding='utf-8-sig')); print('Phase:', d.get('current_phase'), 'Task:', d['current_task'])\""
+wsl -d Ubuntu -- bash -c "grep -E 'AT_' /home/bishop/projects/biasharasmart/.env | sed 's/=.*/=<set>/'"
+wsl -d Ubuntu -- bash -c "python3 -c \"import json,pathlib; d=json.loads(pathlib.Path('/home/bishop/projects/biasharasmart/progress.txt').read_text(encoding='utf-8-sig')); print(d['tasks']['T3.1']['status'])\""
 wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api build 2>&1 | tail -5"
-wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/mobile tsc --noEmit 2>&1 | tail -5"
 ```
 
-## DB migration — run first
+## Install Africa's Talking SDK
 
-Write to /tmp/payroll_migration.sql then execute:
-
-```sql
--- Employees table
-CREATE TABLE IF NOT EXISTS employees (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  business_id UUID NOT NULL REFERENCES businesses(id),
-  full_name VARCHAR(255) NOT NULL,
-  phone VARCHAR(20) NOT NULL,
-  id_number VARCHAR(20) UNIQUE,
-  daily_rate_kes NUMERIC(10,2) NOT NULL DEFAULT 0,
-  employment_type VARCHAR(20) DEFAULT 'casual', -- casual | permanent
-  nssf_number VARCHAR(20),
-  nhif_number VARCHAR(20),
-  active BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Payroll runs table
-CREATE TABLE IF NOT EXISTS payroll_runs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  business_id UUID NOT NULL REFERENCES businesses(id),
-  employee_id UUID NOT NULL REFERENCES employees(id),
-  run_date DATE NOT NULL,
-  days_worked NUMERIC(4,1) NOT NULL DEFAULT 1,
-  gross_kes NUMERIC(12,2) NOT NULL,
-  shif_deduction_kes NUMERIC(10,2) NOT NULL DEFAULT 0,
-  nssf_deduction_kes NUMERIC(10,2) NOT NULL DEFAULT 0,
-  net_kes NUMERIC(12,2) NOT NULL,
-  mpesa_ref VARCHAR(50),
-  status VARCHAR(20) DEFAULT 'pending', -- pending | paid | failed
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Indexes
-CREATE INDEX IF NOT EXISTS idx_employees_business_id ON employees(business_id);
-CREATE INDEX IF NOT EXISTS idx_employees_active ON employees(active);
-CREATE INDEX IF NOT EXISTS idx_payroll_runs_business_id ON payroll_runs(business_id);
-CREATE INDEX IF NOT EXISTS idx_payroll_runs_employee_id ON payroll_runs(employee_id);
-CREATE INDEX IF NOT EXISTS idx_payroll_runs_run_date ON payroll_runs(run_date);
-```
-
-Execute:
 ```powershell
-wsl -d Ubuntu -- bash -c "psql postgresql://biasharasmart:devpass@localhost:5432/biasharasmart_dev -c '\pset pager off' -f /tmp/payroll_migration.sql"
-```
-
-## Statutory deduction constants
-
-Add to shared-types/src/index.ts:
-
-```typescript
-// ─── Payroll Constants (2026) ─────────────────────────────────────────────────
-export const SHIF_RATE = 0.0275;           // 2.75% Social Health Insurance Fund
-export const NSSF_TIER_1_MAX = 6000;       // NSSF Tier 1 ceiling
-export const NSSF_TIER_2_MAX = 18000;      // NSSF Tier 2 ceiling
-export const NSSF_TIER_1_RATE = 0.06;      // 6% on first KES 6,000
-export const NSSF_TIER_2_RATE = 0.06;      // 6% on KES 6,001–18,000
-```
-
-## Deduction calculation
-
-```typescript
-function calculateDeductions(grossKes: number): {
-  shifDeduction: number;
-  nssfDeduction: number;
-  netKes: number;
-} {
-  // SHIF: 2.75% of gross
-  const shifDeduction = +(grossKes * SHIF_RATE).toFixed(2);
-
-  // NSSF Year 4 (2026): Tier 1 + Tier 2
-  let nssfDeduction = 0;
-  if (grossKes <= NSSF_TIER_1_MAX) {
-    nssfDeduction = +(grossKes * NSSF_TIER_1_RATE).toFixed(2);
-  } else if (grossKes <= NSSF_TIER_2_MAX) {
-    nssfDeduction = +(NSSF_TIER_1_MAX * NSSF_TIER_1_RATE + (grossKes - NSSF_TIER_1_MAX) * NSSF_TIER_2_RATE).toFixed(2);
-  } else {
-    nssfDeduction = +(NSSF_TIER_1_MAX * NSSF_TIER_1_RATE + (NSSF_TIER_2_MAX - NSSF_TIER_1_MAX) * NSSF_TIER_2_RATE).toFixed(2);
-  }
-
-  const netKes = +(grossKes - shifDeduction - nssfDeduction).toFixed(2);
-  return { shifDeduction, nssfDeduction, netKes };
-}
+wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api add africastalking"
 ```
 
 ## What to build
 
 | File | What |
 |---|---|
-| `apps/api/src/payroll/payroll.module.ts` | Payroll module |
-| `apps/api/src/payroll/payroll.controller.ts` | Endpoints |
-| `apps/api/src/payroll/payroll.service.ts` | Employee management + payroll calculation + B2C stub |
-| `apps/api/src/payroll/dto/payroll.dto.ts` | DTOs |
-| `apps/api/src/entities/employee.entity.ts` | Employee entity |
-| `apps/api/src/entities/payroll-run.entity.ts` | PayrollRun entity |
-| `apps/mobile/app/payroll/index.tsx` | Employee list screen |
-| `apps/mobile/app/payroll/add-employee.tsx` | Add employee form |
-| `apps/mobile/app/payroll/run.tsx` | Run payroll screen |
-| `apps/mobile/app/payroll/_layout.tsx` | Stack layout |
+| `apps/api/src/ussd/ussd.module.ts` | USSD module |
+| `apps/api/src/ussd/ussd.controller.ts` | POST /api/ussd/callback — AT webhook |
+| `apps/api/src/ussd/ussd.service.ts` | Menu state machine |
+| `apps/api/src/ussd/ussd-session.store.ts` | In-memory session state |
 
-## API endpoints
+## USSD Menu tree
 
-- GET /api/payroll/:businessId/employees — list active employees
-- POST /api/payroll/:businessId/employees — add employee
-- DELETE /api/payroll/:businessId/employees/:id — deactivate employee
-- POST /api/payroll/:businessId/run — run payroll for date
-- GET /api/payroll/:businessId/history — payroll run history
+```
+*384*12345#
+├── 1. Check Balance
+│   └── "Balance: KES X | WHT Due: KES Y"
+├── 2. Record Sale
+│   ├── Enter amount: ____
+│   ├── Enter customer phone: ____
+│   └── "Sale of KES X recorded. Invoice #XXXXXXXX"
+├── 3. Pay WHT
+│   └── "WHT due: KES X. Pay via M-Pesa to Paybill [XXXX]. Ref: WHT[date]"
+├── 4. My Score
+│   └── "Biashara Score: XXX/1000. [Eligible/Not eligible] for Co-op loan."
+└── 5. VAT Status
+    └── "VAT this month: KES X due. File by [date]."
+```
 
-## Run payroll endpoint
+## Session state machine
 
 ```typescript
-async runPayroll(businessId: string, dto: RunPayrollDto) {
-  // dto: { date: string, entries: [{ employeeId, daysWorked }] }
-  const results = [];
+// ussd-session.store.ts
+interface UssdSession {
+  phone: string;
+  businessId: string | null;
+  step: string;
+  data: Record<string, any>;
+  lastActivity: Date;
+}
 
-  for (const entry of dto.entries) {
-    const employee = await this.employeeRepo.findOne({
-      where: { id: entry.employeeId, businessId, active: true },
-    });
-    if (!employee) continue;
+export class UssdSessionStore {
+  private sessions = new Map<string, UssdSession>();
 
-    const grossKes = +(employee.dailyRateKes * entry.daysWorked).toFixed(2);
-    const { shifDeduction, nssfDeduction, netKes } = calculateDeductions(grossKes);
-
-    // B2C stub (sandbox) — real Co-op Bank B2C in T4.x
-    const mpesaRef = `B2C_${Date.now()}_${employee.id.slice(-6)}`;
-
-    const run = await this.payrollRunRepo.save(
-      this.payrollRunRepo.create({
-        businessId,
-        employeeId: employee.id,
-        runDate: new Date(dto.date),
-        daysWorked: entry.daysWorked,
-        grossKes,
-        shifDeductionKes: shifDeduction,
-        nssfDeductionKes: nssfDeduction,
-        netKes,
-        mpesaRef,
-        status: 'paid', // sandbox: always success
-      })
-    );
-
-    // Write ledger entry
-    await this.ledgerRepo.save({
-      businessId,
-      entryType: EntryType.PAYROLL,
-      amountKes: netKes,
-      referenceId: run.id,
-      checksum: `payroll_${mpesaRef}_${Date.now()}`,
-      metadata: {
-        employeeName: employee.fullName,
-        gross: grossKes,
-        shif: shifDeduction,
-        nssf: nssfDeduction,
-        net: netKes,
-      },
-    });
-
-    results.push({ employee: employee.fullName, grossKes, shifDeduction, nssfDeduction, netKes, mpesaRef });
+  get(sessionId: string): UssdSession | undefined {
+    return this.sessions.get(sessionId);
   }
 
-  return { date: dto.date, results, totalNet: results.reduce((s, r) => s + r.netKes, 0) };
+  set(sessionId: string, session: UssdSession): void {
+    this.sessions.set(sessionId, session);
+  }
+
+  delete(sessionId: string): void {
+    this.sessions.delete(sessionId);
+  }
+
+  // Clean sessions older than 5 minutes
+  cleanup(): void {
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    for (const [id, session] of this.sessions) {
+      if (session.lastActivity < fiveMinutesAgo) this.sessions.delete(id);
+    }
+  }
 }
 ```
 
-## Mobile payroll screens
+## USSD service — state machine
 
-### app/payroll/index.tsx
-- Header "Payroll"
-- Employee list — each row shows name, phone, daily rate, "Pay Today" quick button
-- FAB: "Add Employee" → /payroll/add-employee
-- "Run Payroll" button → /payroll/run
-- Empty state: "No employees yet"
-
-### app/payroll/add-employee.tsx
-- Full Name input
-- Phone input (254XXXXXXXXX)
-- ID Number input
-- Daily Rate KES input (numeric)
-- Employment Type toggle: Casual | Permanent
-- "Save Employee" → POST /api/payroll/:businessId/employees
-
-### app/payroll/run.tsx
-- Date picker (default today)
-- Employee checklist with days-worked input per employee
-- Deduction preview: for each employee show Gross, SHIF, NSSF, Net
-- Total summary at bottom
-- "Pay All" → POST /api/payroll/:businessId/run
-- Success: show receipt with all employee payments
-
-## Wire into More tab
-
-Add to more.tsx:
 ```typescript
-{ label: 'Payroll', icon: 'people', route: '/payroll' }
+async handleUssd(params: {
+  sessionId: string;
+  serviceCode: string;
+  phoneNumber: string;
+  text: string;
+}): Promise<string> {
+  const { sessionId, phoneNumber, text } = params;
+  const parts = text.split('*');
+  const level = parts.length;
+
+  // Find business by phone number
+  const business = await this.businessRepo.findOne({
+    where: [{ mpesaTill: phoneNumber }, { mpesaPaybill: phoneNumber }],
+  }) ?? await this.businessRepo.findOne({ where: { id: '7951dda8-a30e-4928-8350-b6c5662154a8' } }); // fallback for testing
+
+  // Level 0 — main menu
+  if (text === '') {
+    return `CON Welcome to BiasharaSmart
+1. Check Balance
+2. Record Sale
+3. Pay WHT
+4. My Bia Score
+5. VAT Status`;
+  }
+
+  // Level 1 — main menu selection
+  if (level === 1) {
+    switch (parts[0]) {
+      case '1': {
+        // Check balance
+        const wht = await this.paymentsService.getWhtSummary(business.id);
+        const recentPayments = await this.paymentRepo.find({
+          where: { businessId: business.id, status: PaymentStatus.CONFIRMED },
+          order: { createdAt: 'DESC' },
+          take: 1,
+        });
+        const lastPayment = recentPayments[0];
+        return `END Balance Summary
+Last payment: KES ${lastPayment ? Number(lastPayment.amountKes).toLocaleString() : '0'}
+WHT Due: KES ${wht.totalPending.toLocaleString()}
+Mode: ${wht.paymentMode.toUpperCase()}`;
+      }
+      case '2':
+        return `CON Record Sale
+Enter sale amount in KES:`;
+      case '3': {
+        const wht = await this.paymentsService.getWhtSummary(business.id);
+        return `END Pay WHT
+Amount Due: KES ${wht.totalPending.toLocaleString()}
+Pay via M-Pesa:
+Paybill: 247247
+Account: WHT${new Date().toISOString().slice(0,7).replace('-','')}
+Due: ${wht.nextDueDate ? new Date(wht.nextDueDate).toDateString() : 'N/A'}`;
+      }
+      case '4': {
+        const score = await this.scoreService.calculateScore(business.id);
+        return `END Biashara Score
+Score: ${score.total}/1000
+${score.loanEligible ? 'ELIGIBLE for Co-op loan' : `Need ${600 - score.total} more pts for loan`}
+Consistency: ${score.breakdown.consistency}/400
+Tax Hygiene: ${score.breakdown.taxHygiene}/300`;
+      }
+      case '5': {
+        const now = new Date();
+        const vatReturn = await this.vatReturnRepo.findOne({
+          where: {
+            businessId: business.id,
+            periodMonth: now.getMonth() + 1,
+            periodYear: now.getFullYear(),
+          },
+        });
+        return `END VAT Status - ${now.toLocaleString('en-KE', { month: 'long' })}
+Net VAT Due: KES ${vatReturn ? Number(vatReturn.netVatKes).toLocaleString() : '0'}
+Status: ${vatReturn?.status ?? 'No return yet'}
+File by: ${new Date(now.getFullYear(), now.getMonth() + 1, 20).toDateString()}`;
+      }
+      default:
+        return `END Invalid option. Dial ${process.env.AT_USSD_CODE} to start again.`;
+    }
+  }
+
+  // Level 2 — Record Sale flow
+  if (level === 2 && parts[0] === '2') {
+    const amount = parseFloat(parts[1]);
+    if (isNaN(amount) || amount <= 0) return `END Invalid amount. Please try again.`;
+    return `CON Sale: KES ${amount.toLocaleString()}
+Enter customer phone (254XXXXXXXXX) or 0 to skip:`;
+  }
+
+  // Level 3 — Record Sale confirm
+  if (level === 3 && parts[0] === '2') {
+    const amount = parseFloat(parts[1]);
+    const phone = parts[2] === '0' ? undefined : parts[2];
+
+    // Create invoice
+    const vatAmount = +(amount * 0.16 / 1.16).toFixed(2); // extract VAT from inclusive amount
+    const subtotal = +(amount - vatAmount).toFixed(2);
+
+    const invoice = await this.invoiceRepo.save(
+      this.invoiceRepo.create({
+        businessId: business.id,
+        customerPhone: phone,
+        lineItems: [{ description: 'USSD Sale', quantity: 1, unitPrice: subtotal, vatRate: 0.16 }],
+        subtotalKes: subtotal,
+        vatAmountKes: vatAmount,
+        totalKes: amount,
+        status: InvoiceStatus.ISSUED,
+      })
+    );
+
+    const whtAmount = +(amount * WHT_RATE).toFixed(2);
+    return `END Sale Recorded!
+Invoice: #${invoice.id.slice(-8).toUpperCase()}
+Amount: KES ${amount.toLocaleString()}
+VAT: KES ${vatAmount.toLocaleString()}
+WHT Due: KES ${whtAmount.toLocaleString()}
+Send M-Pesa prompt? Dial ${process.env.AT_USSD_CODE} > 2 to collect.`;
+  }
+
+  return `END Session expired. Dial ${process.env.AT_USSD_CODE} to start again.`;
+}
 ```
 
-## Build and test
+## Controller
+
+```typescript
+@Controller('ussd')
+export class UssdController {
+  @Post('callback')
+  @HttpCode(200)
+  async handleCallback(@Body() body: any, @Res() res: Response) {
+    // AT sends form-encoded data
+    const { sessionId, serviceCode, phoneNumber, text } = body;
+    const response = await this.ussdService.handleUssd({
+      sessionId, serviceCode, phoneNumber, text,
+    });
+    res.set('Content-Type', 'text/plain');
+    res.send(response);
+  }
+}
+```
+
+**Important:** AT USSD callback sends `application/x-www-form-urlencoded`. Add to main.ts:
+```typescript
+// Ensure urlencoded body parsing is enabled in NestJS
+app.use(express.urlencoded({ extended: true }));
+```
+
+Read current main.ts before editing:
+```powershell
+wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/api/src/main.ts"
+```
+
+## Testing with ngrok
 
 ```powershell
-# Add employee
-wsl -d Ubuntu -- bash -c "python3 -c \"import json; open('/tmp/emp.json','w').write(json.dumps({'fullName':'John Kamau','phone':'254712345678','dailyRateKes':1500,'employmentType':'casual'}))\""
-wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/payroll/7951dda8-a30e-4928-8350-b6c5662154a8/employees -H 'Content-Type: application/json' -d @/tmp/emp.json | python3 -m json.tool"
+# Start API
+Start-Job -ScriptBlock { wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api start:dev" }
+Start-Sleep -Seconds 20
 
-# Run payroll (get employee ID from above)
-wsl -d Ubuntu -- bash -c "python3 -c \"import json; open('/tmp/payroll.json','w').write(json.dumps({'date':'2026-03-06','entries':[{'employeeId':'REPLACE_ID','daysWorked':1}]}))\""
-wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/payroll/7951dda8-a30e-4928-8350-b6c5662154a8/run -H 'Content-Type: application/json' -d @/tmp/payroll.json | python3 -m json.tool"
+# Start ngrok
+Start-Job -ScriptBlock { wsl -d Ubuntu -- bash -c "ngrok http 3000" }
+Start-Sleep -Seconds 5
+
+# Get ngrok URL
+wsl -d Ubuntu -- bash -c "curl -s http://localhost:4040/api/tunnels | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"tunnels\"][0][\"public_url\"])'"
 ```
 
-Expected: gross=1500, shif=41.25 (2.75%), nssf=90 (6% of 1500), net=1368.75
+Set callback URL in AT dashboard: `https://xxxx.ngrok.io/api/ussd/callback`
+
+Simulate USSD session locally:
+```powershell
+# Main menu
+wsl -d Ubuntu -- bash -c "python3 -c \"import json; open('/tmp/ussd.json','w').write(json.dumps({'sessionId':'test123','serviceCode':'*384*12345#','phoneNumber':'254712345678','text':''}))\""
+wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/ussd/callback -H 'Content-Type: application/x-www-form-urlencoded' -d 'sessionId=test123&serviceCode=*384*12345%23&phoneNumber=254712345678&text='"
+
+# Check balance
+wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/ussd/callback -H 'Content-Type: application/x-www-form-urlencoded' -d 'sessionId=test123&serviceCode=*384*12345%23&phoneNumber=254712345678&text=1'"
+```
 
 ## Exit criteria
-- [x] employees + payroll_runs tables created
-- [x] GET/POST /api/payroll/:businessId/employees works
-- [x] POST /api/payroll/:businessId/run calculates SHIF + NSSF correctly
-- [x] Ledger entry written for each payroll disbursement
-- [x] Employee list + add form + run payroll screens built
-- [x] More tab has Payroll link
-- [x] API build + mobile tsc: zero errors
+- [ ] POST /api/ussd/callback returns CON/END text responses
+- [ ] Main menu shows all 5 options
+- [ ] Check Balance returns real WHT + last payment data
+- [ ] Record Sale creates invoice, calculates VAT + WHT
+- [ ] Pay WHT shows correct amount + paybill instructions
+- [ ] My Score returns real Biashara Score
+- [ ] VAT Status returns current month VAT
+- [ ] API build: zero errors
+- [ ] urlencoded body parsing enabled in main.ts
 
 ## On completion
 
@@ -248,11 +283,11 @@ Expected: gross=1500, shif=41.25 (2.75%), nssf=90 (6% of 1500), net=1368.75
 $p = "\\wsl$\Ubuntu\home\bishop\projects\biasharasmart\progress.txt"
 $raw = [System.IO.File]::ReadAllText($p).TrimStart([char]0xFEFF)
 $d = $raw | ConvertFrom-Json
-$d.tasks.'T3.1'.status = "complete"
-$d.tasks.'T3.1'.notes = "T3.1 COMPLETE: Micro-payroll. Employee management, SHIF 2.75% + NSSF Year 4 deductions, B2C stub, ledger entry. Employee list + add + run payroll screens. More tab wired."
-$d.current_task = "T3.2"
+$d.tasks.'T3.2'.status = "complete"
+$d.tasks.'T3.2'.notes = "T3.2 COMPLETE: USSD Gateway. AT integration, 5-option menu, balance check, sale recording (creates invoice), WHT payment instructions, Bia Score, VAT status. Tested locally via form-encoded POST."
+$d.current_task = "T3.3"
 [System.IO.File]::WriteAllText($p, ($d | ConvertTo-Json -Depth 10), [System.Text.Encoding]::UTF8)
-wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git add -A && git --no-pager commit -m 'T3.1: Micro-payroll — SHIF/NSSF deductions + B2C stub + payroll screens'"
+wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git add -A && git --no-pager commit -m 'T3.2: USSD Gateway — AT integration, 5-option menu, invoice + WHT + score via feature phone'"
 wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git push origin main"
-Write-Host "T3.1 COMPLETE"
+Write-Host "T3.2 COMPLETE"
 ```
