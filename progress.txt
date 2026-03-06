@@ -1,7 +1,7 @@
-﻿{
+{
     "project":  "BiasharaSmart Mobile App",
     "version":  "1.0",
-    "last_updated":  "2026-03-05T18:36:10.275815+00:00",
+    "last_updated":  "2026-03-06T10:00:00.000000+00:00",
     "current_phase":  1,
     "current_task":  "T1.4",
     "execution_environment":  {
@@ -59,9 +59,9 @@
                                "notes":  "T1.3 COMPLETE: 5 API endpoints, invoice list+create+detail+PDF share, offline queue auto-sync on reconnect. Full flow tested. tsc clean on both workspaces."
                            },
                   "T1.4":  {
-                               "status":  "not_started",
-                               "session":  null,
-                               "notes":  ""
+                               "status":  "in_progress",
+                               "session":  "S08",
+                               "notes":  "Pre-T1.4 schema refactor complete: wht_liabilities table, payment_mode+bia_score on businesses, wht_amount_kes+wht_status+payment_flow on payments. WHT constants in shared-types. All 3 workspaces build clean."
                            },
                   "T1.5":  {
                                "status":  "not_started",

@@ -139,3 +139,105 @@ INSERT INTO businesses (kra_pin, business_name, business_type, kyc_status)
 VALUES 
 ('P051234567Z', 'Maji Safi Vendors', 'sole_proprietor', 'approved'),
 ('P051987654A', 'Habari Logistics Ltd', 'limited_company', 'pending');
+-- Migration: WHT dual-architecture
+-- Safe to run multiple times (uses IF NOT EXISTS / DO blocks)
+
+-- 1. Add payment_mode to businesses
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='businesses' AND column_name='payment_mode'
+  ) THEN
+    ALTER TABLE businesses ADD COLUMN payment_mode VARCHAR(20) DEFAULT 'legacy';
+  END IF;
+END $$;
+
+-- 2. Add bia_score to businesses
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='businesses' AND column_name='bia_score'
+  ) THEN
+    ALTER TABLE businesses ADD COLUMN bia_score INTEGER DEFAULT 0;
+  END IF;
+END $$;
+
+-- 3. Add co_op_virtual_account to businesses
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='businesses' AND column_name='co_op_virtual_account'
+  ) THEN
+    ALTER TABLE businesses ADD COLUMN co_op_virtual_account VARCHAR(100);
+  END IF;
+END $$;
+
+-- 4. Add wht_amount_kes to payments
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='payments' AND column_name='wht_amount_kes'
+  ) THEN
+    ALTER TABLE payments ADD COLUMN wht_amount_kes NUMERIC(15,2) DEFAULT 0;
+  END IF;
+END $$;
+
+-- 5. Add wht_status to payments
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='payments' AND column_name='wht_status'
+  ) THEN
+    ALTER TABLE payments ADD COLUMN wht_status VARCHAR(20) DEFAULT 'pending';
+  END IF;
+END $$;
+
+-- 6. Add payment_flow to payments
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='payments' AND column_name='payment_flow'
+  ) THEN
+    ALTER TABLE payments ADD COLUMN payment_flow VARCHAR(20) DEFAULT 'legacy';
+  END IF;
+END $$;
+
+-- 7. Add mpesa_code to payments
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='payments' AND column_name='mpesa_code'
+  ) THEN
+    ALTER TABLE payments ADD COLUMN mpesa_code VARCHAR(50);
+  END IF;
+END $$;
+
+-- 8. Add escrow_ref to payments
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='payments' AND column_name='escrow_ref'
+  ) THEN
+    ALTER TABLE payments ADD COLUMN escrow_ref VARCHAR(100);
+  END IF;
+END $$;
+
+-- 9. Create wht_liabilities table
+CREATE TABLE IF NOT EXISTS wht_liabilities (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id UUID NOT NULL REFERENCES businesses(id),
+  payment_id UUID REFERENCES payments(id),
+  amount_kes NUMERIC(15,2) NOT NULL,
+  due_date TIMESTAMPTZ NOT NULL,
+  status VARCHAR(20) DEFAULT 'pending',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 10. Indexes
+CREATE INDEX IF NOT EXISTS idx_wht_liabilities_business_id ON wht_liabilities(business_id);
+CREATE INDEX IF NOT EXISTS idx_wht_liabilities_status ON wht_liabilities(status);
+CREATE INDEX IF NOT EXISTS idx_wht_liabilities_due_date ON wht_liabilities(due_date);
+CREATE INDEX IF NOT EXISTS idx_businesses_payment_mode ON businesses(payment_mode);
+CREATE INDEX IF NOT EXISTS idx_payments_wht_status ON payments(wht_status);
+CREATE INDEX IF NOT EXISTS idx_payments_payment_flow ON payments(payment_flow);

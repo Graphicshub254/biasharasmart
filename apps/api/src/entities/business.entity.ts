@@ -53,6 +53,15 @@ export class Business {
   })
   kycStatus!: KycStatus;
 
+  @Column({ name: 'payment_mode', length: 20, default: 'legacy' })
+  paymentMode!: string; // 'legacy' | 'gateway'
+
+  @Column({ name: 'bia_score', type: 'int', default: 0 })
+  biaScore!: number;
+
+  @Column({ name: 'co_op_virtual_account', length: 100, nullable: true })
+  coOpVirtualAccount?: string;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

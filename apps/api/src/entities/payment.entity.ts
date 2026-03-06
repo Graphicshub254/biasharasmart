@@ -51,6 +51,21 @@ export class Payment {
   @Column({ name: 'resolved_at', type: 'timestamptz', nullable: true })
   resolvedAt?: Date;
 
+  @Column({ name: 'wht_amount_kes', type: 'numeric', precision: 15, scale: 2, default: 0 })
+  whtAmountKes!: number;
+
+  @Column({ name: 'wht_status', length: 20, default: 'pending' })
+  whtStatus!: string; // 'pending' | 'escrowed' | 'remitted'
+
+  @Column({ name: 'payment_flow', length: 20, default: 'legacy' })
+  paymentFlow!: string; // 'legacy' | 'gateway'
+
+  @Column({ name: 'mpesa_code', length: 50, nullable: true })
+  mpesaCode?: string;
+
+  @Column({ name: 'escrow_ref', length: 100, nullable: true })
+  escrowRef?: string;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 }
