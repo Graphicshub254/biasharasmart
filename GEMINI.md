@@ -234,13 +234,13 @@ wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/payroll/7951
 Expected: gross=1500, shif=41.25 (2.75%), nssf=90 (6% of 1500), net=1368.75
 
 ## Exit criteria
-- [ ] employees + payroll_runs tables created
-- [ ] GET/POST /api/payroll/:businessId/employees works
-- [ ] POST /api/payroll/:businessId/run calculates SHIF + NSSF correctly
-- [ ] Ledger entry written for each payroll disbursement
-- [ ] Employee list + add form + run payroll screens built
-- [ ] More tab has Payroll link
-- [ ] API build + mobile tsc: zero errors
+- [x] employees + payroll_runs tables created
+- [x] GET/POST /api/payroll/:businessId/employees works
+- [x] POST /api/payroll/:businessId/run calculates SHIF + NSSF correctly
+- [x] Ledger entry written for each payroll disbursement
+- [x] Employee list + add form + run payroll screens built
+- [x] More tab has Payroll link
+- [x] API build + mobile tsc: zero errors
 
 ## On completion
 
