@@ -4,6 +4,13 @@ export const WHT_REMITTANCE_DAYS = 5;      // 5-day rolling window for KRA remit
 export const VAT_RATE_STANDARD = 0.16;     // 16% standard VAT
 export const VAT_RATE_ZERO = 0;            // Zero-rated VAT
 
+// ─── Payroll Constants (2026) ─────────────────────────────────────────────────
+export const SHIF_RATE = 0.0275;           // 2.75% Social Health Insurance Fund
+export const NSSF_TIER_1_MAX = 6000;       // NSSF Tier 1 ceiling
+export const NSSF_TIER_2_MAX = 18000;      // NSSF Tier 2 ceiling
+export const NSSF_TIER_1_RATE = 0.06;      // 6% on first KES 6,000
+export const NSSF_TIER_2_RATE = 0.06;      // 6% on KES 6,001–18,000
+
 // ─── Payment flow types ───────────────────────────────────────────────────────
 export type PaymentMode = 'legacy' | 'gateway';
 export type WhtStatus = 'pending' | 'escrowed' | 'remitted';

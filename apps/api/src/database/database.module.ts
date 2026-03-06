@@ -8,6 +8,8 @@ import { Payment } from '../entities/payment.entity';
 import { VatReturn } from '../entities/vat-return.entity';
 import { WhtLiability } from '../entities/wht-liability.entity';
 import { NotificationToken } from '../entities/notification-token.entity';
+import { Employee } from '../entities/employee.entity';
+import { PayrollRun } from '../entities/payroll-run.entity';
 
 @Module({
   imports: [
@@ -16,7 +18,17 @@ import { NotificationToken } from '../entities/notification-token.entity';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => configService.getOrThrow<TypeOrmModuleOptions>('database'),
     }),
-    TypeOrmModule.forFeature([Business, Ledger, Invoice, Payment, VatReturn, WhtLiability, NotificationToken]),
+    TypeOrmModule.forFeature([
+      Business,
+      Ledger,
+      Invoice,
+      Payment,
+      VatReturn,
+      WhtLiability,
+      NotificationToken,
+      Employee,
+      PayrollRun,
+    ]),
   ],
   exports: [TypeOrmModule],
 })

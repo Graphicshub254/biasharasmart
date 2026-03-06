@@ -12,6 +12,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { colors, typography, spacing } from '@biasharasmart/ui-tokens';
 
 const MENU_ITEMS = [
+  { label: 'Payroll', icon: 'people', route: '/payroll' },
   { label: 'Reports', icon: 'assessment', route: '/reports' },
   { label: 'Biashara Score', icon: 'speed', route: '/score' },
   { label: 'TCC Status', icon: 'verified', route: '/tcc' },
