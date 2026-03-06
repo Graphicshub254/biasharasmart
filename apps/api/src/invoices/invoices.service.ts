@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Invoice, InvoiceStatus } from '../entities/invoice.entity';
 import { Business } from '../entities/business.entity';
 import { GavaConnectService } from '../onboarding/gavaconnect.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { UpdateInvoiceStatusDto } from './dto/update-invoice-status.dto';
 import { InvoiceQueryDto } from './dto/invoice-query.dto';
@@ -16,6 +17,7 @@ export class InvoicesService {
     @InjectRepository(Business)
     private readonly businessRepository: Repository<Business>,
     private readonly gavaConnectService: GavaConnectService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async listInvoices(query: InvoiceQueryDto): Promise<{ data: Invoice[]; total: number; page: number; limit: number }> {
@@ -81,11 +83,27 @@ export class InvoicesService {
       saved.cuNumber = cuNumber;
       saved.status = InvoiceStatus.PENDING_KRA;
       saved.offlineQueued = false;
-      return this.invoiceRepository.save(saved);
+      const res = await this.invoiceRepository.save(saved);
+
+      await this.notificationsService.sendPush(
+        saved.businessId,
+        'KRA Sync Success',
+        `✅ Invoice #${saved.id.slice(0, 8)} registered with KRA. CU: ${cuNumber}`,
+        { type: 'KRA_SYNC_SUCCESS', invoiceId: saved.id, cuNumber }
+      );
+      return res;
     } catch (e) {
       // GavaConnect failed — mark for retry
       saved.offlineQueued = true;
-      return this.invoiceRepository.save(saved);
+      const res = await this.invoiceRepository.save(saved);
+
+      await this.notificationsService.sendPush(
+        saved.businessId,
+        'KRA Sync Failed',
+        `⚠️ Invoice #${saved.id.slice(0, 8)} KRA sync failed. Will retry when online.`,
+        { type: 'KRA_SYNC_FAIL', invoiceId: saved.id }
+      );
+      return res;
     }
   }
 
@@ -117,7 +135,15 @@ export class InvoicesService {
     invoice.cuNumber = cuNumber;
     invoice.status = InvoiceStatus.PENDING_KRA;
     invoice.offlineQueued = false;
-    return this.invoiceRepository.save(invoice);
+    const res = await this.invoiceRepository.save(invoice);
+
+    await this.notificationsService.sendPush(
+      invoice.businessId,
+      'KRA Sync Success',
+      `✅ Invoice #${invoice.id.slice(0, 8)} registered with KRA. CU: ${cuNumber}`,
+      { type: 'KRA_SYNC_SUCCESS', invoiceId: invoice.id, cuNumber }
+    );
+    return res;
   }
 
   async getOfflineQueue(businessId: string): Promise<Invoice[]> {

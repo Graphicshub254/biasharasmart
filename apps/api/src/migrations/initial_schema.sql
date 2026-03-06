@@ -241,3 +241,13 @@ CREATE INDEX IF NOT EXISTS idx_wht_liabilities_due_date ON wht_liabilities(due_d
 CREATE INDEX IF NOT EXISTS idx_businesses_payment_mode ON businesses(payment_mode);
 CREATE INDEX IF NOT EXISTS idx_payments_wht_status ON payments(wht_status);
 CREATE INDEX IF NOT EXISTS idx_payments_payment_flow ON payments(payment_flow);
+
+-- T2.3: Notification tokens table
+CREATE TABLE IF NOT EXISTS notification_tokens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id UUID NOT NULL REFERENCES businesses(id),
+  expo_token VARCHAR(200) NOT NULL UNIQUE,
+  device_id VARCHAR(100),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_notification_tokens_business_id ON notification_tokens(business_id);

@@ -12,6 +12,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { colors, typography, spacing } from '@biasharasmart/ui-tokens';
 
 const MENU_ITEMS = [
+  { label: 'Biashara Score', icon: 'speed', route: '/score' },
   { label: 'TCC Status', icon: 'verified', route: '/tcc' },
   { label: 'VAT Returns', icon: 'receipt-long', route: '/vat' },
   { label: 'Business Profile', icon: 'business', route: '/profile', placeholder: 'Profile management coming in T1.6' },

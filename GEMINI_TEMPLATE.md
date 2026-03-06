@@ -39,6 +39,56 @@ Expected: [success output]
 ### Step N — Verify exit criteria
 [one verification command per criterion]
 
+## Production-Ready Checklist (The "Shift-Left" Guide)
+Before marking a task as complete, verify these 5 pillars:
+1. **Type Safety:** Run `yarn workspace @biasharasmart/api build` and `yarn workspace @biasharasmart/mobile tsc`. Zero errors allowed.
+2. **Schema Integrity:** Ensure entities match `initial_schema.sql`. New fields MUST be added to migrations.
+3. **Ledger Fidelity:** Any financial move (VAT, Payment, Invoice) MUST write a ledger entry with a valid checksum.
+4. **Mobile Sync:** Ensure `shared-types` are updated if API DTOs change. Run `setup_tokens.js` if UI tokens change.
+5. **Security:** No hardcoded IDs. Use `:businessId` or `:id` params. Validate ownership in services.
+
+## Standardized Endpoint Testing Patterns
+Use these patterns to ensure 100% coverage and faster debugging.
+
+### 1. The "Happy Path" (Success)
+```powershell
+wsl -d Ubuntu -- bash -c "curl -s -X GET http://localhost:3000/api/[endpoint] | python3 -m json.tool"
+# Look for: 200/201 status, expected JSON structure, non-null IDs.
+```
+
+### 2. The "Bad Input" (Validation)
+```powershell
+# Create invalid payload
+wsl -d Ubuntu -- bash -c "echo '{\"invalid_field\": \"data\"}' > /tmp/bad_payload.json"
+wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/[endpoint] -H 'Content-Type: application/json' -d @/tmp/bad_payload.json | python3 -m json.tool"
+# Look for: 400 Bad Request, descriptive validation messages.
+```
+
+### 3. The "Not Found" (Edge Case)
+```powershell
+wsl -d Ubuntu -- bash -c "curl -s -i http://localhost:3000/api/[endpoint]/non-existent-uuid"
+# Look for: 404 Not Found in the headers (-i flag).
+```
+
+### 4. The "Pagination" (Consistency)
+```powershell
+wsl -d Ubuntu -- bash -c "curl -s 'http://localhost:3000/api/[endpoint]?page=1&limit=1' | python3 -m json.tool"
+# Look for: { data: [...], total: X, page: 1, limit: 1 } structure.
+```
+
+## How to Help Others (Peer Review Guide)
+If reviewing or assisting a teammate:
+- **Check Entity Mappings:** Did they use `@Column({ type: 'decimal', precision: 12, scale: 2 })` for KES amounts? (Crucial for precision).
+- **Check DTO Validation:** Are `@IsUUID()`, `@IsNumber()`, `@IsEnum()` decorators present?
+- **Check Mobile Error Handling:** Does the screen show an `Alert.alert` or just log to console? (Must show UI feedback).
+- **Check naming:** Use `CamelCase` for TS/JS, `snake_case` for SQL/JSON.
+
+## Fast Production Shortcuts
+- **Skip the Sleep:** Use Pitfall #4's polling loop instead of waiting 30s.
+- **Parallel Builds:** Run `yarn build` in API while you work on Mobile.
+- **Payload Reuse:** Keep a `test/payloads/` folder for common JSON bodies.
+- **Alias it:** Add `alias bs-api='yarn workspace @biasharasmart/api'` to your WSL `.bashrc`.
+
 ## Exit criteria — ALL must pass
 - [ ] [specific testable binary criterion]
 - [ ] [specific testable binary criterion]

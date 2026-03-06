@@ -53,6 +53,7 @@ function DashboardScreen() {
     const [refreshing, setRefreshing] = (0, react_1.useState)(false);
     const [summary, setSummary] = (0, react_1.useState)(null);
     const [whtSummary, setWhtSummary] = (0, react_1.useState)(null);
+    const [score, setScore] = (0, react_1.useState)(420);
     const [cachedSummary, setCachedSummary] = (0, react_1.useState)(null);
     const [isBlurred, setIsBlurred] = (0, react_1.useState)(false);
     const fetchDashboard = (0, react_1.useCallback)(async (isRefresh = false) => {
@@ -70,6 +71,12 @@ function DashboardScreen() {
             if (whtRes.ok) {
                 const whtData = await whtRes.json();
                 setWhtSummary(whtData);
+            }
+            // Fetch Score
+            const scoreRes = await fetch(`${API_BASE}/api/score/${data.business.id}`);
+            if (scoreRes.ok) {
+                const scoreData = await scoreRes.json();
+                setScore(scoreData.total);
             }
         }
         catch (error) {
@@ -159,7 +166,7 @@ function DashboardScreen() {
           </react_native_1.View>
           <react_native_1.View style={styles.metricRow}>
             <components_1.MetricTile label="WHT Due" value={whtSummary?.totalPending || 0} unit="KES" accentColor={(whtSummary?.overdueCount || 0) > 0 ? ui_tokens_1.colors.red : ui_tokens_1.colors.gold} isLoading={loading}/>
-            <components_1.MetricTile label="Bia Score" value={420} unit="/ 1000" accentColor={ui_tokens_1.colors.cobalt} isLoading={loading}/>
+            <components_1.MetricTile label="Bia Score" value={score} unit="/ 1000" accentColor={ui_tokens_1.colors.cobalt} isLoading={loading} onPress={() => router.push('/score')}/>
           </react_native_1.View>
         </react_native_1.View>
 

@@ -1,142 +1,198 @@
-﻿# GEMINI.md — Task Brief: T2.1
-## Task: VAT Returns — filing engine, period calculator, GavaConnect submission
+﻿# GEMINI.md — Task Brief: T2.3
+## Task: Push notifications — WHT deadline alerts, KRA sync status, score milestones
 
 ## Environment rules
-- Windows PowerShell host, WSL Ubuntu guest
-- All Linux commands: `wsl -d Ubuntu -- <cmd>`
-- Yarn: `/home/bishop/.npm-global/bin/yarn`
-- write_file tool only for TypeScript — never heredoc
-- JSON payloads via python3 to /tmp/file.json
-- git --no-pager always
-- \pset pager off for psql
+- Same as all previous tasks
 
 ## Pre-checks
 
 ```powershell
-wsl -d Ubuntu -- bash -c "python3 -c \"import json,pathlib; d=json.loads(pathlib.Path('/home/bishop/projects/biasharasmart/progress.txt').read_text(encoding='utf-8-sig')); print(d['tasks']['T1.6']['status'])\""
+wsl -d Ubuntu -- bash -c "python3 -c \"import json,pathlib; d=json.loads(pathlib.Path('/home/bishop/projects/biasharasmart/progress.txt').read_text(encoding='utf-8-sig')); print(d['tasks']['T2.2']['status'])\""
 wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api build 2>&1 | tail -5"
-wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/api/src/entities/vat-return.entity.ts"
-wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/mobile/app/\(tabs\)/more.tsx"
 ```
 
 ## What to build
 
 | File | What |
 |---|---|
-| `apps/api/src/vat/vat.module.ts` | NestJS VAT module |
-| `apps/api/src/vat/vat.controller.ts` | VAT return endpoints |
-| `apps/api/src/vat/vat.service.ts` | Period calc, output/input VAT aggregation, GavaConnect submission |
-| `apps/api/src/vat/dto/vat.dto.ts` | DTOs |
-| `apps/mobile/app/vat/index.tsx` | VAT returns list screen |
-| `apps/mobile/app/vat/[period].tsx` | VAT return detail + file button |
-| `apps/mobile/app/vat/_layout.tsx` | Stack layout |
+| `apps/api/src/notifications/notifications.module.ts` | Notifications module |
+| `apps/api/src/notifications/notifications.service.ts` | Push send logic + scheduler |
+| `apps/api/src/notifications/notifications.controller.ts` | Register token, test send |
+| `apps/api/src/entities/notification-token.entity.ts` | Store Expo push tokens per business |
+| DB migration | `notification_tokens` table |
+| `apps/mobile/src/lib/notifications.ts` | Register + request permissions on app start |
 
-## API endpoints
+## Push notification types
 
-- GET /api/vat/:businessId — list all VAT returns paginated
-- GET /api/vat/:businessId/current — get or create current month draft
-- POST /api/vat/:businessId/calculate — recalculate from invoices
-- POST /api/vat/:id/submit — submit to GavaConnect
+| Type | When triggered | Message |
+|---|---|---|
+| WHT_DEADLINE_3DAYS | WHT liability due in 3 days | "⚠️ KES {X} WHT due in 3 days. Pay now to avoid KRA penalties." |
+| WHT_DEADLINE_1DAY | WHT liability due tomorrow | "🚨 KES {X} WHT due TOMORROW. Pay immediately." |
+| WHT_OVERDUE | WHT liability now overdue | "❌ KES {X} WHT is OVERDUE. KRA penalties may apply." |
+| KRA_SYNC_SUCCESS | Invoice cu_number returned | "✅ Invoice #{ref} registered with KRA. CU: {cuNumber}" |
+| KRA_SYNC_FAIL | GavaConnect offline queue | "⚠️ Invoice #{ref} KRA sync failed. Will retry when online." |
+| SCORE_MILESTONE | Score crosses 400/600/800 | "🎯 Biashara Score hit {score}! You're now eligible for Co-op Bank loans." |
+| TCC_EXPIRY_30DAYS | TCC expires in 30 days | "⚠️ Your Tax Compliance Certificate expires in 30 days. Renew on iTax." |
 
-## VAT calculation logic
+## Expo push notifications
 
-Output VAT = sum of vatAmountKes on all PAID invoices in the period
-Input VAT = 0 for now (T3.x will add purchase invoices)
-Net VAT = Output VAT - Input VAT
+Use Expo's push notification service (no Firebase needed for Expo Go).
 
 ```typescript
-async calculateVatForPeriod(businessId: string, month: number, year: number) {
-  // Find all paid invoices in period
-  const startDate = new Date(year, month - 1, 1);
-  const endDate = new Date(year, month, 0, 23, 59, 59);
+// notifications.service.ts
+import Expo from 'expo-server-sdk';
 
-  const invoices = await this.invoiceRepo.find({
-    where: {
-      businessId,
-      status: InvoiceStatus.PAID,
-      createdAt: Between(startDate, endDate),
-    },
-  });
+const expo = new Expo();
 
-  const outputVat = invoices.reduce((sum, inv) => sum + Number(inv.vatAmountKes), 0);
-  const inputVat = 0; // T3.x
-  const netVat = +(outputVat - inputVat).toFixed(2);
-
-  return { outputVat, inputVat, netVat, invoiceCount: invoices.length };
+async sendPush(token: string, title: string, body: string, data?: any) {
+  if (!Expo.isExpoPushToken(token)) return;
+  const message = {
+    to: token,
+    sound: 'default',
+    title,
+    body,
+    data: data ?? {},
+  };
+  try {
+    await expo.sendPushNotificationsAsync([message]);
+  } catch (err) {
+    this.logger.error('Push send failed', err);
+  }
 }
 ```
 
-## Submit logic
-
-```typescript
-async submitVatReturn(vatReturnId: string) {
-  const vatReturn = await this.vatReturnRepo.findOne({ where: { id: vatReturnId } });
-  if (!vatReturn) throw new NotFoundException('VAT return not found');
-  if (vatReturn.status !== VatReturnStatus.DRAFT) throw new BadRequestException('Already submitted');
-
-  // Call GavaConnect (stub in sandbox)
-  const ackNumber = `VAT_ACK_${Date.now()}`;
-  vatReturn.status = VatReturnStatus.SUBMITTED;
-  vatReturn.gavaconnectAcknowledgement = ackNumber;
-  vatReturn.submittedAt = new Date();
-  await this.vatReturnRepo.save(vatReturn);
-
-  // Write ledger: vat_computed entry
-  await this.ledgerRepo.save({
-    businessId: vatReturn.businessId,
-    entryType: EntryType.VAT_COMPUTED,
-    amountKes: vatReturn.netVatKes,
-    referenceId: vatReturn.id,
-    checksum: `vat_${ackNumber}_${Date.now()}`,
-    metadata: { period: `${vatReturn.periodMonth}/${vatReturn.periodYear}`, ackNumber },
-  });
-
-  return vatReturn;
-}
-```
-
-## Mobile VAT screen
-
-### app/vat/index.tsx
-- Header "VAT Returns"
-- Current month card: shows output VAT, input VAT, net VAT, status badge
-- "Calculate" button → POST /api/vat/:businessId/calculate
-- "File Return" button (only if draft and net > 0) → POST /api/vat/:id/submit
-- Previous returns list — VatReturnRow component (build inline)
-- Each row: period (Jan 2026), status badge, net VAT amount
-
-### app/vat/[period].tsx
-- Detail for specific VAT return
-- Breakdown: output VAT, input VAT, net VAT
-- Invoice list contributing to output VAT
-- Status timeline: Draft → Submitted → Acknowledged
-- Download PDF button (use expo-print, same pattern as invoice PDF)
-
-## Wire into More tab
-
-Read current more.tsx and add VAT Returns menu item:
-```typescript
-{ label: 'VAT Returns', icon: 'receipt-long', route: '/vat' }
-```
-
-## Build and test
-
+Install expo-server-sdk in API:
 ```powershell
-# Start API and test
-wsl -d Ubuntu -- bash -c "curl -s http://localhost:3000/api/vat/7951dda8-a30e-4928-8350-b6c5662154a8/current | python3 -m json.tool"
-# Expected: draft VAT return for current month
+wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api add expo-server-sdk"
+```
 
-wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/vat/7951dda8-a30e-4928-8350-b6c5662154a8/calculate | python3 -m json.tool"
-# Expected: { outputVat, inputVat: 0, netVat, invoiceCount }
+## Scheduler — check WHT deadlines daily
+
+Use NestJS @Cron decorator. Run daily at 8AM EAT (5AM UTC):
+
+```typescript
+import { Cron } from '@nestjs/schedule';
+
+@Cron('0 5 * * *') // 8AM EAT
+async checkWhtDeadlines() {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const threeDaysOut = new Date();
+  threeDaysOut.setDate(threeDaysOut.getDate() + 3);
+
+  // Find liabilities due in 1 day
+  const dueTomorrow = await this.whtLiabilityRepo.find({
+    where: { status: 'pending', dueDate: Between(new Date(), tomorrow) },
+  });
+
+  // Find liabilities due in 3 days
+  const dueIn3Days = await this.whtLiabilityRepo.find({
+    where: { status: 'pending', dueDate: Between(tomorrow, threeDaysOut) },
+  });
+
+  // Send notifications for each
+  for (const liability of dueTomorrow) {
+    await this.sendNotificationForBusiness(liability.businessId, 'WHT_DEADLINE_1DAY', liability.amountKes);
+  }
+  for (const liability of dueIn3Days) {
+    await this.sendNotificationForBusiness(liability.businessId, 'WHT_DEADLINE_3DAYS', liability.amountKes);
+  }
+}
+```
+
+Add `ScheduleModule.forRoot()` to app.module.ts.
+
+## Entity
+
+```typescript
+@Entity('notification_tokens')
+export class NotificationToken {
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
+
+  @Column({ name: 'business_id' })
+  businessId!: string;
+
+  @Column({ name: 'expo_token', length: 200, unique: true })
+  expoToken!: string;
+
+  @Column({ name: 'device_id', length: 100, nullable: true })
+  deviceId?: string;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt!: Date;
+}
+```
+
+DB migration:
+```sql
+CREATE TABLE IF NOT EXISTS notification_tokens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id UUID NOT NULL REFERENCES businesses(id),
+  expo_token VARCHAR(200) NOT NULL UNIQUE,
+  device_id VARCHAR(100),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_notification_tokens_business_id ON notification_tokens(business_id);
+```
+
+## Mobile: register for notifications
+
+apps/mobile/src/lib/notifications.ts
+
+```typescript
+import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
+
+const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+
+export async function registerForPushNotifications(businessId: string): Promise<void> {
+  const { status: existingStatus } = await Notifications.getPermissionsAsync();
+  let finalStatus = existingStatus;
+  if (existingStatus !== 'granted') {
+    const { status } = await Notifications.requestPermissionsAsync();
+    finalStatus = status;
+  }
+  if (finalStatus !== 'granted') return;
+
+  const token = (await Notifications.getExpoPushTokenAsync({
+    projectId: Constants.expoConfig?.extra?.eas?.projectId,
+  })).data;
+
+  await fetch(`${API_BASE}/api/notifications/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ businessId, expoToken: token }),
+  });
+}
+```
+
+Call `registerForPushNotifications(BUSINESS_ID)` in dashboard.tsx useEffect.
+
+## Controller
+
+```typescript
+@Controller('notifications')
+export class NotificationsController {
+  @Post('register')
+  register(@Body() dto: { businessId: string; expoToken: string }) {
+    return this.notificationsService.registerToken(dto.businessId, dto.expoToken);
+  }
+
+  @Post('test/:businessId')
+  testPush(@Param('businessId') businessId: string) {
+    return this.notificationsService.sendTestNotification(businessId);
+  }
+}
 ```
 
 ## Exit criteria
-- [ ] GET /api/vat/:businessId/current returns or creates draft
-- [ ] POST /api/vat/:businessId/calculate aggregates from paid invoices
-- [ ] POST /api/vat/:id/submit sets status=submitted, writes ledger
-- [ ] app/vat/index.tsx shows current period + previous returns
-- [ ] More tab has VAT Returns link
-- [ ] API build + mobile tsc: zero errors
+- [ ] notification_tokens table created
+- [ ] POST /api/notifications/register stores Expo token
+- [ ] @Cron job runs at 5AM UTC — checks WHT deadlines, sends push
+- [ ] expo-server-sdk installed in API
+- [ ] mobile notifications.ts registers token on dashboard load
+- [ ] API build: zero errors, mobile tsc: zero errors
 
 ## On completion
 
@@ -144,11 +200,11 @@ wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/vat/7951dda8
 $p = "\\wsl$\Ubuntu\home\bishop\projects\biasharasmart\progress.txt"
 $raw = [System.IO.File]::ReadAllText($p).TrimStart([char]0xFEFF)
 $d = $raw | ConvertFrom-Json
-$d.tasks.'T2.1'.status = "complete"
-$d.tasks.'T2.1'.notes = "T2.1 COMPLETE: VAT filing engine. Period calculator, output VAT from paid invoices, GavaConnect stub submission, ledger entry. VAT list + detail screens. More tab wired."
-$d.current_task = "T2.2"
+$d.tasks.'T2.3'.status = "complete"
+$d.tasks.'T2.3'.notes = "T2.3 COMPLETE: Push notifications. WHT deadline alerts (1day, 3day, overdue), KRA sync, score milestone. Expo push tokens stored. Daily cron scheduler. Mobile registers token on load."
+$d.current_task = "T2.4"
 [System.IO.File]::WriteAllText($p, ($d | ConvertTo-Json -Depth 10), [System.Text.Encoding]::UTF8)
-wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git add -A && git --no-pager commit -m 'T2.1: VAT filing engine + VAT screens'"
+wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git add -A && git --no-pager commit -m 'T2.3: Push notifications — WHT deadline alerts + score milestones + cron scheduler'"
 wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git push origin main"
-Write-Host "T2.1 COMPLETE"
+Write-Host "T2.3 COMPLETE"
 ```

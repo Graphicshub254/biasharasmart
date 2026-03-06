@@ -24,6 +24,7 @@ import {
 import { useNetworkStatus } from '../../src/lib/network';
 import { DashboardSummary, WhtSummary } from '@biasharasmart/shared-types';
 import { useInvoiceSync } from '../../src/lib/invoice-sync';
+import { registerForPushNotifications } from '../../src/lib/notifications';
 
 // --- Constants ---
 
@@ -39,6 +40,7 @@ export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [whtSummary, setWhtSummary] = useState<WhtSummary | null>(null);
+  const [score, setScore] = useState<number>(420);
   const [cachedSummary, setCachedSummary] = useState<DashboardSummary | null>(null);
   const [isBlurred, setIsBlurred] = useState(false);
 
@@ -53,11 +55,21 @@ export default function DashboardScreen() {
       setSummary(data);
       setCachedSummary(data);
 
+      // Register for push notifications
+      registerForPushNotifications(data.business.id);
+
       // Fetch WHT summary
       const whtRes = await fetch(`${API_BASE}/api/payments/wht-summary/${data.business.id}`);
       if (whtRes.ok) {
         const whtData: WhtSummary = await whtRes.json();
         setWhtSummary(whtData);
+      }
+
+      // Fetch Score
+      const scoreRes = await fetch(`${API_BASE}/api/score/${data.business.id}`);
+      if (scoreRes.ok) {
+        const scoreData = await scoreRes.json();
+        setScore(scoreData.total);
       }
     } catch (error) {
       console.error('Dashboard fetch error:', error);
@@ -206,10 +218,11 @@ export default function DashboardScreen() {
             />
             <MetricTile
               label="Bia Score"
-              value={420}
+              value={score}
               unit="/ 1000"
               accentColor={colors.cobalt}
               isLoading={loading}
+              onPress={() => router.push('/score')}
             />
           </View>
         </View>

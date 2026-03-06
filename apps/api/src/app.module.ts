@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { DatabaseModule } from './database/database.module';
@@ -10,6 +11,8 @@ import { PaymentsModule } from './payments/payments.module';
 import { TccModule } from './tcc/tcc.module';
 import { AdminModule } from './admin/admin.module';
 import { VatModule } from './vat/vat.module';
+import { ScoreModule } from './score/score.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import databaseConfig from './config/database.config';
 
 @Module({
@@ -18,6 +21,7 @@ import databaseConfig from './config/database.config';
       isGlobal: true,
       load: [databaseConfig],
     }),
+    ScheduleModule.forRoot(),
     DatabaseModule,
     OnboardingModule,
     DashboardModule,
@@ -26,6 +30,8 @@ import databaseConfig from './config/database.config';
     TccModule,
     AdminModule,
     VatModule,
+    ScoreModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

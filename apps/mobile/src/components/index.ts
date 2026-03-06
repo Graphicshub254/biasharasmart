@@ -10,3 +10,4 @@ export * from './SkeletonLoader/SkeletonLoader';
 export * from './InvoiceCard/InvoiceCard';
 export * from './SectionCard/SectionCard';
 export * from './ProgressRing/ProgressRing';
+export * from './ProgressBar/ProgressBar';

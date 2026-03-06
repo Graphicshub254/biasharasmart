@@ -25,3 +25,4 @@ __exportStar(require("./SkeletonLoader/SkeletonLoader"), exports);
 __exportStar(require("./InvoiceCard/InvoiceCard"), exports);
 __exportStar(require("./SectionCard/SectionCard"), exports);
 __exportStar(require("./ProgressRing/ProgressRing"), exports);
+__exportStar(require("./ProgressBar/ProgressBar"), exports);
