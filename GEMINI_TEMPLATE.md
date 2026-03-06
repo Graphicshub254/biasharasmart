@@ -57,9 +57,8 @@ Expected: [success output]
 
 2. **Quote hell in PowerShell → WSL → Bash → Python**
    Symptom: Unexpected EOF, syntax errors, missing expressions.
-   Fix: Never inline JSON. Always use python3 to write payload files:
-   `powershell wsl -d Ubuntu -- bash -c "python3 -c \"import json; open('/tmp/req.json','w').write(json.dumps({'key':'value'}))\""`
-   `wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/endpoint -H 'Content-Type: application/json' -d @/tmp/req.json | python3 -m json.tool"`
+   Fix: Never try to build complex JSON strings inside `wsl -d Ubuntu -- bash -c`. If a 1-liner fails, use the `write_file` tool to create a temporary `.json` file in the project root (e.g., `test_payload.json`), then use it in curl:
+   `wsl -d Ubuntu -- bash -c "/usr/bin/curl -s -X POST http://localhost:3000/api/endpoint -H 'Content-Type: application/json' -d @/home/bishop/projects/biasharasmart/test_payload.json | python3 -m json.tool"`
 
 3. **Heredoc mangling TypeScript template literals**
    Symptom: `${variable}` gets swallowed, backticks break.
@@ -118,6 +117,20 @@ Expected: [success output]
     `data = json.loads(pathlib.Path('progress.txt').read_text(encoding='utf-8-sig'))`
     Always write with UTF-8 (no BOM):
     `p.write_text(json.dumps(data, indent=2), encoding='utf-8')`
+
+11. **PowerShell `curl` Alias (The "Headers" Error)**
+    Symptom: `Invoke-WebRequest : Cannot bind parameter 'Headers'`.
+    Fix: In PowerShell, `curl` is an alias for `Invoke-WebRequest`. To use the real Linux curl, either:
+    - Always wrap in `wsl -d Ubuntu -- bash -c "curl ..."`
+    - Use the full path `/usr/bin/curl` inside the WSL context to avoid any shell ambiguity.
+
+12. **Background Jobs & "Connection Refused"**
+    Symptom: `curl` fails immediately after starting `start:dev`.
+    Fix: NestJS needs ~20-30 seconds to boot. Always add a `Start-Sleep -Seconds 25` or use the polling loop in Pitfall 4.
+
+13. **WSL Path Translation**
+    Symptom: `curl: could not open file @/tmp/test.json`.
+    Fix: If you use the `write_file` tool from Windows, the file is at `\\wsl.localhost\Ubuntu\home\bishop\...`. From inside WSL, that same file is at `/home/bishop/...`. Ensure your curl command uses the internal Linux path.
 
 ## On completion
 $p = "\\wsl$\Ubuntu\home\bishop\projects\biasharasmart\progress.txt"
