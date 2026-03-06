@@ -13,7 +13,7 @@ import { colors, typography, spacing } from '@biasharasmart/ui-tokens';
 
 const MENU_ITEMS = [
   { label: 'TCC Status', icon: 'verified', route: '/tcc' },
-  { label: 'VAT Returns', icon: 'receipt-long', route: '/vat', placeholder: 'VAT Filing coming in T2.1' },
+  { label: 'VAT Returns', icon: 'receipt-long', route: '/vat' },
   { label: 'Business Profile', icon: 'business', route: '/profile', placeholder: 'Profile management coming in T1.6' },
 ];
 

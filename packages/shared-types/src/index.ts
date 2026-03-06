@@ -52,6 +52,13 @@ export enum InvoiceStatus {
   CANCELLED = 'cancelled',
 }
 
+export enum VatReturnStatus {
+  DRAFT = 'draft',
+  PENDING_REVIEW = 'pending_review',
+  SUBMITTED = 'submitted',
+  ACKNOWLEDGED = 'acknowledged',
+}
+
 // ─── Core domain interfaces ──────────────────────────────────────────────────
 
 export interface Business {
@@ -84,6 +91,20 @@ export interface Invoice {
   offlineQueued: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface VatReturn {
+  id: string;
+  businessId: string;
+  periodMonth: number;
+  periodYear: number;
+  outputVatKes: number;
+  inputVatKes: number;
+  netVatKes: number;
+  status: VatReturnStatus;
+  gavaconnectAcknowledgement?: string;
+  submittedAt?: string;
+  createdAt: string;
 }
 
 export interface LineItem {

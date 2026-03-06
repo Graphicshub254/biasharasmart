@@ -3,7 +3,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { colors, typography, spacing } from '@biasharasmart/ui-tokens';
 
-export type StatusType = 'compliant' | 'warning' | 'lapsed' | 'pending' | 'filed' | 'overdue';
+export type StatusType = 'compliant' | 'warning' | 'lapsed' | 'pending' | 'filed' | 'overdue' | 'draft' | 'submitted';
 
 export interface StatusBadgeProps {
   status: StatusType;
@@ -18,6 +18,8 @@ const STATUS_CONFIG: Record<StatusType, { color: string; bg: string; icon: strin
   pending:   { color: colors.greyMid,bg: colors.grey1,    icon: '…', defaultLabel: 'Pending' },
   filed:     { color: colors.teal,   bg: colors.tealLight, icon: '✓', defaultLabel: 'Filed' },
   overdue:   { color: colors.orange, bg: colors.orangeBg, icon: '!', defaultLabel: 'Overdue' },
+  draft:     { color: colors.greyMid,bg: colors.greyDark, icon: '✎', defaultLabel: 'Draft' },
+  submitted: { color: colors.mint,   bg: colors.cobalt,   icon: '↑', defaultLabel: 'Submitted' },
 };
 
 export const StatusBadge: React.FC<StatusBadgeProps> = ({

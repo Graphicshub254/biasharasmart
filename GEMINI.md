@@ -1,480 +1,142 @@
-﻿# GEMINI.md — Task Brief: T1.6
-## Task: Install admin console files + wire into app.module.ts + test
+﻿# GEMINI.md — Task Brief: T2.1
+## Task: VAT Returns — filing engine, period calculator, GavaConnect submission
 
 ## Environment rules
 - Windows PowerShell host, WSL Ubuntu guest
 - All Linux commands: `wsl -d Ubuntu -- <cmd>`
-- Yarn binary: `/home/bishop/.npm-global/bin/yarn`
-- Always use git --no-pager
-- Always use \pset pager off for psql
-- Never use find /, heredoc, or interactive shells
+- Yarn: `/home/bishop/.npm-global/bin/yarn`
+- write_file tool only for TypeScript — never heredoc
+- JSON payloads via python3 to /tmp/file.json
+- git --no-pager always
+- \pset pager off for psql
 
 ## Pre-checks
 
 ```powershell
-# 1. T1.5 complete
-wsl -d Ubuntu -- bash -c "python3 -c \"import json,pathlib; d=json.loads(pathlib.Path('/home/bishop/projects/biasharasmart/progress.txt').read_text(encoding='utf-8-sig')); print(d['tasks']['T1.5']['status'])\""
-```
-
-```powershell
-# 2. Build clean
+wsl -d Ubuntu -- bash -c "python3 -c \"import json,pathlib; d=json.loads(pathlib.Path('/home/bishop/projects/biasharasmart/progress.txt').read_text(encoding='utf-8-sig')); print(d['tasks']['T1.6']['status'])\""
 wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api build 2>&1 | tail -5"
+wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/api/src/entities/vat-return.entity.ts"
+wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/mobile/app/\(tabs\)/more.tsx"
 ```
 
-## Step 1 — Create admin directory
+## What to build
 
-```powershell
-wsl -d Ubuntu -- bash -c "mkdir -p /home/bishop/projects/biasharasmart/apps/api/src/admin/guards /home/bishop/projects/biasharasmart/apps/api/src/admin/decorators /home/bishop/projects/biasharasmart/apps/api/src/admin/dto"
-```
+| File | What |
+|---|---|
+| `apps/api/src/vat/vat.module.ts` | NestJS VAT module |
+| `apps/api/src/vat/vat.controller.ts` | VAT return endpoints |
+| `apps/api/src/vat/vat.service.ts` | Period calc, output/input VAT aggregation, GavaConnect submission |
+| `apps/api/src/vat/dto/vat.dto.ts` | DTOs |
+| `apps/mobile/app/vat/index.tsx` | VAT returns list screen |
+| `apps/mobile/app/vat/[period].tsx` | VAT return detail + file button |
+| `apps/mobile/app/vat/_layout.tsx` | Stack layout |
 
-## Step 2 — Write the 6 admin files using write_file tool
+## API endpoints
 
-Write these files EXACTLY as provided. Use write_file tool — do NOT use heredoc.
+- GET /api/vat/:businessId — list all VAT returns paginated
+- GET /api/vat/:businessId/current — get or create current month draft
+- POST /api/vat/:businessId/calculate — recalculate from invoices
+- POST /api/vat/:id/submit — submit to GavaConnect
 
-### File 1: apps/api/src/admin/decorators/roles.decorator.ts
+## VAT calculation logic
+
+Output VAT = sum of vatAmountKes on all PAID invoices in the period
+Input VAT = 0 for now (T3.x will add purchase invoices)
+Net VAT = Output VAT - Input VAT
 
 ```typescript
-import { SetMetadata } from '@nestjs/common';
+async calculateVatForPeriod(businessId: string, month: number, year: number) {
+  // Find all paid invoices in period
+  const startDate = new Date(year, month - 1, 1);
+  const endDate = new Date(year, month, 0, 23, 59, 59);
 
-export enum AdminRole {
-  SUPER_ADMIN = 'super_admin',
-  OPERATOR = 'operator',
-  AUDITOR = 'auditor',
-  VIEWER = 'viewer',
+  const invoices = await this.invoiceRepo.find({
+    where: {
+      businessId,
+      status: InvoiceStatus.PAID,
+      createdAt: Between(startDate, endDate),
+    },
+  });
+
+  const outputVat = invoices.reduce((sum, inv) => sum + Number(inv.vatAmountKes), 0);
+  const inputVat = 0; // T3.x
+  const netVat = +(outputVat - inputVat).toFixed(2);
+
+  return { outputVat, inputVat, netVat, invoiceCount: invoices.length };
 }
-
-export const ROLES_KEY = 'roles';
-export const Roles = (...roles: AdminRole[]) => SetMetadata(ROLES_KEY, roles);
 ```
 
-### File 2: apps/api/src/admin/guards/admin.guard.ts
+## Submit logic
 
 ```typescript
-import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
-import { AdminRole, ROLES_KEY } from '../decorators/roles.decorator';
+async submitVatReturn(vatReturnId: string) {
+  const vatReturn = await this.vatReturnRepo.findOne({ where: { id: vatReturnId } });
+  if (!vatReturn) throw new NotFoundException('VAT return not found');
+  if (vatReturn.status !== VatReturnStatus.DRAFT) throw new BadRequestException('Already submitted');
 
-const ADMIN_TOKENS: Record<string, { role: AdminRole; name: string }> = {
-  'admin-super-token-dev': { role: AdminRole.SUPER_ADMIN, name: 'Super Admin' },
-  'admin-operator-token-dev': { role: AdminRole.OPERATOR, name: 'Operator' },
-  'admin-auditor-token-dev': { role: AdminRole.AUDITOR, name: 'Auditor' },
-  'admin-viewer-token-dev': { role: AdminRole.VIEWER, name: 'Viewer' },
-};
+  // Call GavaConnect (stub in sandbox)
+  const ackNumber = `VAT_ACK_${Date.now()}`;
+  vatReturn.status = VatReturnStatus.SUBMITTED;
+  vatReturn.gavaconnectAcknowledgement = ackNumber;
+  vatReturn.submittedAt = new Date();
+  await this.vatReturnRepo.save(vatReturn);
 
-const ROLE_HIERARCHY: Record<AdminRole, number> = {
-  [AdminRole.SUPER_ADMIN]: 4,
-  [AdminRole.OPERATOR]: 3,
-  [AdminRole.AUDITOR]: 2,
-  [AdminRole.VIEWER]: 1,
-};
+  // Write ledger: vat_computed entry
+  await this.ledgerRepo.save({
+    businessId: vatReturn.businessId,
+    entryType: EntryType.VAT_COMPUTED,
+    amountKes: vatReturn.netVatKes,
+    referenceId: vatReturn.id,
+    checksum: `vat_${ackNumber}_${Date.now()}`,
+    metadata: { period: `${vatReturn.periodMonth}/${vatReturn.periodYear}`, ackNumber },
+  });
 
-@Injectable()
-export class AdminGuard implements CanActivate {
-  constructor(private reflector: Reflector) {}
-
-  canActivate(context: ExecutionContext): boolean {
-    const requiredRoles = this.reflector.getAllAndOverride<AdminRole[]>(ROLES_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
-
-    const request = context.switchToHttp().getRequest();
-    const token = request.headers['x-admin-token'];
-
-    if (!token) throw new UnauthorizedException('Admin token required');
-
-    const admin = ADMIN_TOKENS[token];
-    if (!admin) throw new UnauthorizedException('Invalid admin token');
-
-    request.admin = admin;
-
-    if (!requiredRoles || requiredRoles.length === 0) return true;
-
-    const adminLevel = ROLE_HIERARCHY[admin.role];
-    const minRequired = Math.min(...requiredRoles.map(r => ROLE_HIERARCHY[r]));
-
-    if (adminLevel < minRequired) {
-      throw new UnauthorizedException(`Requires role: ${requiredRoles.join(' or ')}`);
-    }
-
-    return true;
-  }
+  return vatReturn;
 }
 ```
 
-### File 3: apps/api/src/admin/dto/admin.dto.ts
+## Mobile VAT screen
 
+### app/vat/index.tsx
+- Header "VAT Returns"
+- Current month card: shows output VAT, input VAT, net VAT, status badge
+- "Calculate" button → POST /api/vat/:businessId/calculate
+- "File Return" button (only if draft and net > 0) → POST /api/vat/:id/submit
+- Previous returns list — VatReturnRow component (build inline)
+- Each row: period (Jan 2026), status badge, net VAT amount
+
+### app/vat/[period].tsx
+- Detail for specific VAT return
+- Breakdown: output VAT, input VAT, net VAT
+- Invoice list contributing to output VAT
+- Status timeline: Draft → Submitted → Acknowledged
+- Download PDF button (use expo-print, same pattern as invoice PDF)
+
+## Wire into More tab
+
+Read current more.tsx and add VAT Returns menu item:
 ```typescript
-import { IsEnum, IsOptional, IsString, IsInt, Min } from 'class-validator';
-import { Type } from 'class-transformer';
-import { KycStatus } from '../../entities/business.entity';
-
-export class KycReviewDto {
-  @IsEnum(KycStatus)
-  status!: KycStatus.APPROVED | KycStatus.REJECTED;
-
-  @IsOptional()
-  @IsString()
-  notes?: string;
-}
-
-export class BusinessSearchDto {
-  @IsOptional()
-  @IsString()
-  search?: string;
-
-  @IsOptional()
-  @IsEnum(KycStatus)
-  kycStatus?: KycStatus;
-
-  @IsOptional()
-  @IsString()
-  paymentMode?: string;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Type(() => Number)
-  page?: number = 1;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Type(() => Number)
-  limit?: number = 20;
-}
+{ label: 'VAT Returns', icon: 'receipt-long', route: '/vat' }
 ```
 
-### File 4: apps/api/src/admin/admin.service.ts
-
-```typescript
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Business, KycStatus } from '../entities/business.entity';
-import { Invoice } from '../entities/invoice.entity';
-import { Payment } from '../entities/payment.entity';
-import { WhtLiability } from '../entities/wht-liability.entity';
-import { KycReviewDto, BusinessSearchDto } from './dto/admin.dto';
-import { GavaConnectService } from '../onboarding/gavaconnect.service';
-
-export interface AuditLogEntry {
-  id: string;
-  action: string;
-  adminName: string;
-  adminRole: string;
-  targetId: string;
-  targetType: string;
-  notes?: string;
-  timestamp: string;
-}
-
-const auditLog: AuditLogEntry[] = [];
-
-@Injectable()
-export class AdminService {
-  constructor(
-    @InjectRepository(Business)
-    private readonly businessRepository: Repository<Business>,
-    @InjectRepository(Invoice)
-    private readonly invoiceRepository: Repository<Invoice>,
-    @InjectRepository(Payment)
-    private readonly paymentRepository: Repository<Payment>,
-    @InjectRepository(WhtLiability)
-    private readonly whtLiabilityRepository: Repository<WhtLiability>,
-    private readonly gavaConnectService: GavaConnectService,
-  ) {}
-
-  async getKycQueue(): Promise<Business[]> {
-    return this.businessRepository.find({
-      where: { kycStatus: KycStatus.PENDING },
-      order: { createdAt: 'ASC' },
-    });
-  }
-
-  async reviewKyc(
-    businessId: string,
-    dto: KycReviewDto,
-    admin: { name: string; role: string },
-  ): Promise<Business> {
-    const business = await this.businessRepository.findOne({ where: { id: businessId } });
-    if (!business) throw new NotFoundException('Business not found');
-    business.kycStatus = dto.status;
-    const updated = await this.businessRepository.save(business);
-    this.writeAudit({
-      action: `KYC_${dto.status.toUpperCase()}`,
-      adminName: admin.name,
-      adminRole: admin.role,
-      targetId: businessId,
-      targetType: 'business',
-      notes: dto.notes,
-    });
-    return updated;
-  }
-
-  async searchBusinesses(query: BusinessSearchDto): Promise<{
-    data: Business[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
-    const { search, kycStatus, paymentMode, page = 1, limit = 20 } = query;
-    let qb = this.businessRepository.createQueryBuilder('b');
-    if (search) {
-      qb = qb.where(
-        '(b.business_name ILIKE :s OR b.kra_pin ILIKE :s OR b.mpesa_paybill ILIKE :s)',
-        { s: `%${search}%` },
-      );
-    }
-    if (kycStatus) qb = qb.andWhere('b.kyc_status = :kycStatus', { kycStatus });
-    if (paymentMode) qb = qb.andWhere('b.payment_mode = :paymentMode', { paymentMode });
-    const [data, total] = await qb
-      .orderBy('b.created_at', 'DESC')
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getManyAndCount();
-    return { data, total, page, limit };
-  }
-
-  async getSystemHealth() {
-    const results: Record<string, { status: string; latencyMs?: number; detail?: string }> = {};
-    try {
-      const t0 = Date.now();
-      await this.businessRepository.count();
-      results.database = { status: 'ok', latencyMs: Date.now() - t0 };
-    } catch (e: any) {
-      results.database = { status: 'error', detail: e.message };
-    }
-    try {
-      const t0 = Date.now();
-      await this.gavaConnectService.checkTcc('P051234567Z');
-      results.gavaConnect = { status: 'ok', latencyMs: Date.now() - t0 };
-    } catch {
-      results.gavaConnect = { status: 'degraded', detail: 'Stub error' };
-    }
-    results.daraja = { status: 'ok', detail: 'sandbox' };
-    const [businesses, invoices, payments, pendingKyc] = await Promise.all([
-      this.businessRepository.count(),
-      this.invoiceRepository.count(),
-      this.paymentRepository.count(),
-      this.businessRepository.count({ where: { kycStatus: KycStatus.PENDING } }),
-    ]);
-    const pendingLiabilities = await this.whtLiabilityRepository.find({
-      where: { status: 'pending' as any },
-    });
-    const totalPendingKes = pendingLiabilities.reduce((sum, l) => sum + Number(l.amountKes), 0);
-    const overdueCount = pendingLiabilities.filter(l => new Date(l.dueDate) < new Date()).length;
-    const allOk = Object.values(results).every(s => s.status === 'ok');
-    const anyDown = Object.values(results).some(s => s.status === 'error');
-    return {
-      status: anyDown ? 'down' : allOk ? 'healthy' : 'degraded',
-      services: results,
-      counts: { businesses, invoices, payments, pendingKyc },
-      whtSummary: { totalPendingKes, overdueCount },
-    };
-  }
-
-  async getBusinessDetail(businessId: string) {
-    const business = await this.businessRepository.findOne({ where: { id: businessId } });
-    if (!business) throw new NotFoundException('Business not found');
-    const [invoiceCount, paymentCount, whtLiabilities] = await Promise.all([
-      this.invoiceRepository.count({ where: { businessId } }),
-      this.paymentRepository.count({ where: { businessId } }),
-      this.whtLiabilityRepository.find({ where: { businessId, status: 'pending' as any } }),
-    ]);
-    const whtPending = whtLiabilities.reduce((sum, l) => sum + Number(l.amountKes), 0);
-    return { business, invoiceCount, paymentCount, whtPending };
-  }
-
-  getAuditLog(limit = 50): AuditLogEntry[] {
-    return auditLog.slice(-limit).reverse();
-  }
-
-  private writeAudit(entry: Omit<AuditLogEntry, 'id' | 'timestamp'>): void {
-    auditLog.push({
-      ...entry,
-      id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      timestamp: new Date().toISOString(),
-    });
-    if (auditLog.length > 1000) auditLog.splice(0, auditLog.length - 1000);
-  }
-}
-```
-
-### File 5: apps/api/src/admin/admin.controller.ts
-
-```typescript
-import { Controller, Get, Patch, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
-import { AdminService } from './admin.service';
-import { AdminGuard } from './guards/admin.guard';
-import { Roles, AdminRole } from './decorators/roles.decorator';
-import { KycReviewDto, BusinessSearchDto } from './dto/admin.dto';
-
-@Controller('admin')
-@UseGuards(AdminGuard)
-export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
-
-  @Get('health')
-  @Roles(AdminRole.VIEWER)
-  getHealth() {
-    return this.adminService.getSystemHealth();
-  }
-
-  @Get('kyc-queue')
-  @Roles(AdminRole.OPERATOR)
-  getKycQueue() {
-    return this.adminService.getKycQueue();
-  }
-
-  @Patch('kyc/:businessId')
-  @Roles(AdminRole.OPERATOR)
-  reviewKyc(
-    @Param('businessId') businessId: string,
-    @Body() dto: KycReviewDto,
-    @Request() req: any,
-  ) {
-    return this.adminService.reviewKyc(businessId, dto, req.admin);
-  }
-
-  @Get('businesses')
-  @Roles(AdminRole.AUDITOR)
-  searchBusinesses(@Query() query: BusinessSearchDto) {
-    return this.adminService.searchBusinesses(query);
-  }
-
-  @Get('businesses/:businessId')
-  @Roles(AdminRole.AUDITOR)
-  getBusinessDetail(@Param('businessId') businessId: string) {
-    return this.adminService.getBusinessDetail(businessId);
-  }
-
-  @Get('audit-log')
-  @Roles(AdminRole.AUDITOR)
-  getAuditLog() {
-    return this.adminService.getAuditLog(100);
-  }
-}
-```
-
-### File 6: apps/api/src/admin/admin.module.ts
-
-```typescript
-import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { Business } from '../entities/business.entity';
-import { Invoice } from '../entities/invoice.entity';
-import { Payment } from '../entities/payment.entity';
-import { WhtLiability } from '../entities/wht-liability.entity';
-import { AdminController } from './admin.controller';
-import { AdminService } from './admin.service';
-import { OnboardingModule } from '../onboarding/onboarding.module';
-
-@Module({
-  imports: [
-    TypeOrmModule.forFeature([Business, Invoice, Payment, WhtLiability]),
-    OnboardingModule,
-  ],
-  controllers: [AdminController],
-  providers: [AdminService],
-  exports: [AdminService],
-})
-export class AdminModule {}
-```
-
-## Step 3 — Wire AdminModule into app.module.ts
-
-Read current app.module.ts:
-```powershell
-wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/api/src/app.module.ts"
-```
-
-Add to imports array: `AdminModule`
-Add to imports at top: `import { AdminModule } from './admin/admin.module';`
-
-## Step 4 — Check GavaConnectService exports
+## Build and test
 
 ```powershell
-wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/api/src/onboarding/onboarding.module.ts"
+# Start API and test
+wsl -d Ubuntu -- bash -c "curl -s http://localhost:3000/api/vat/7951dda8-a30e-4928-8350-b6c5662154a8/current | python3 -m json.tool"
+# Expected: draft VAT return for current month
+
+wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/vat/7951dda8-a30e-4928-8350-b6c5662154a8/calculate | python3 -m json.tool"
+# Expected: { outputVat, inputVat: 0, netVat, invoiceCount }
 ```
 
-If GavaConnectService is not in exports array, add it.
-
-## Step 5 — Build
-
-```powershell
-wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api build 2>&1 | tail -10"
-```
-
-Zero errors required.
-
-## Step 6 — Test all endpoints
-
-Start API:
-```powershell
-Start-Job -ScriptBlock { wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api start:dev 2>&1" }
-Start-Sleep -Seconds 25
-```
-
-Test health (viewer token):
-```powershell
-wsl -d Ubuntu -- bash -c "curl -s http://localhost:3000/api/admin/health -H 'x-admin-token: admin-viewer-token-dev' | python3 -m json.tool"
-```
-
-Expected: { status: 'healthy', services: {database: ok, gavaConnect: ok, daraja: ok}, counts: {...} }
-
-Test KYC queue (operator token):
-```powershell
-wsl -d Ubuntu -- bash -c "curl -s http://localhost:3000/api/admin/kyc-queue -H 'x-admin-token: admin-operator-token-dev' | python3 -m json.tool"
-```
-
-Expected: array of pending businesses (Habari Logistics Ltd should be there)
-
-Test business search (auditor token):
-```powershell
-wsl -d Ubuntu -- bash -c "curl -s 'http://localhost:3000/api/admin/businesses?search=Maji' -H 'x-admin-token: admin-auditor-token-dev' | python3 -m json.tool"
-```
-
-Expected: { data: [{businessName: 'Maji Safi Vendors', ...}], total: 1 }
-
-Test RBAC — viewer trying operator endpoint (should get 401):
-```powershell
-wsl -d Ubuntu -- bash -c "curl -s http://localhost:3000/api/admin/kyc-queue -H 'x-admin-token: admin-viewer-token-dev' | python3 -m json.tool"
-```
-
-Expected: { statusCode: 401, message: 'Requires role: operator...' }
-
-Test KYC review — approve Habari Logistics:
-```powershell
-wsl -d Ubuntu -- bash -c "HID=\$(curl -s 'http://localhost:3000/api/admin/businesses?search=Habari' -H 'x-admin-token: admin-auditor-token-dev' | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"data\"][0][\"id\"])') && python3 -c \"import json; open('/tmp/kyc.json','w').write(json.dumps({'status':'approved','notes':'Documents verified'}))\" && curl -s -X PATCH http://localhost:3000/api/admin/kyc/\$HID -H 'x-admin-token: admin-operator-token-dev' -H 'Content-Type: application/json' -d @/tmp/kyc.json | python3 -m json.tool | grep kyc_status"
-```
-
-Expected: "kyc_status": "approved"
-
-Test audit log:
-```powershell
-wsl -d Ubuntu -- bash -c "curl -s http://localhost:3000/api/admin/audit-log -H 'x-admin-token: admin-auditor-token-dev' | python3 -m json.tool | head -20"
-```
-
-Expected: array with KYC_APPROVED entry
-
-## Exit criteria — ALL must pass
-
-- [ ] GET /api/admin/health returns healthy status with all services
-- [ ] GET /api/admin/kyc-queue returns pending businesses
-- [ ] PATCH /api/admin/kyc/:id approves/rejects and writes audit log
-- [ ] GET /api/admin/businesses?search= returns filtered results
-- [ ] GET /api/admin/businesses/:id returns detail with counts
-- [ ] GET /api/admin/audit-log returns audit entries
-- [ ] Viewer token rejected on operator endpoints (401)
-- [ ] No token returns 401
-- [ ] API build: zero errors
-
-## Do NOT do
-- Do not build mobile admin screens — admin is API only in Phase 1
-- Do not use real JWT — token map is intentional for now
-- Do not use find /
-- Do not use heredoc
+## Exit criteria
+- [ ] GET /api/vat/:businessId/current returns or creates draft
+- [ ] POST /api/vat/:businessId/calculate aggregates from paid invoices
+- [ ] POST /api/vat/:id/submit sets status=submitted, writes ledger
+- [ ] app/vat/index.tsx shows current period + previous returns
+- [ ] More tab has VAT Returns link
+- [ ] API build + mobile tsc: zero errors
 
 ## On completion
 
@@ -482,12 +144,11 @@ Expected: array with KYC_APPROVED entry
 $p = "\\wsl$\Ubuntu\home\bishop\projects\biasharasmart\progress.txt"
 $raw = [System.IO.File]::ReadAllText($p).TrimStart([char]0xFEFF)
 $d = $raw | ConvertFrom-Json
-$d.tasks.'T1.6'.status = "complete"
-$d.tasks.'T1.6'.notes = "T1.6 COMPLETE: Admin console. RBAC (super_admin/operator/auditor/viewer). KYC queue+review. Business search+detail. System health. In-memory audit log. All endpoints tested. API build clean."
-$d.current_task = "T2.1"
-$d.current_phase = 2
+$d.tasks.'T2.1'.status = "complete"
+$d.tasks.'T2.1'.notes = "T2.1 COMPLETE: VAT filing engine. Period calculator, output VAT from paid invoices, GavaConnect stub submission, ledger entry. VAT list + detail screens. More tab wired."
+$d.current_task = "T2.2"
 [System.IO.File]::WriteAllText($p, ($d | ConvertTo-Json -Depth 10), [System.Text.Encoding]::UTF8)
-wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git add -A && git --no-pager commit -m 'T1.6: Admin console — RBAC, KYC queue, business search, system health, audit log'"
+wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git add -A && git --no-pager commit -m 'T2.1: VAT filing engine + VAT screens'"
 wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git push origin main"
-Write-Host "T1.6 COMPLETE — PHASE 1 DONE"
+Write-Host "T2.1 COMPLETE"
 ```
