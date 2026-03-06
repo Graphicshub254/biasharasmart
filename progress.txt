@@ -1,125 +1,82 @@
 {
-    "project":  "BiasharaSmart Mobile App",
-    "version":  "1.0",
-    "last_updated":  "2026-03-06T10:00:00.000000+00:00",
-    "current_phase":  1,
-    "current_task":  "T1.5",
-    "execution_environment":  {
-                                  "gemini_runs_on":  "Windows PowerShell",
-                                  "linux_commands_via":  "wsl -d Ubuntu --",
-                                  "project_wsl_path":  "/home/bishop/projects/biasharasmart",
-                                  "project_windows_path":  "\\\\wsl$\\Ubuntu\\home\\bishop\\projects\\biasharasmart"
-                              },
-    "mcp_servers":  {
-                        "filesystem":  "running",
-                        "biasharasmart-prd":  "running",
-                        "progress-tracker":  "running",
-                        "codegraphcontext":  "running",
-                        "playwright":  "installed_deferred_to_T1.2",
-                        "google-search":  "running"
-                    },
-    "tasks":  {
-                  "T0.1":  {
-                               "status":  "complete",
-                               "session":  "S01",
-                               "notes":  "Monorepo scaffolded: apps/mobile (RN), apps/api (NestJS), packages/shared-types. Yarn workspaces configured. TypeScript strict mode. ESLint + Prettier. GitHub Actions CI."
-                           },
-                  "T0.2":  {
-                               "status":  "complete",
-                               "session":  "S02",
-                               "notes":  "All 5 MCP servers built and registered: biasharasmart-prd (prd_server.py), progress-tracker (progress_server.py), filesystem (npx), CodeGraphContext (FalkorDB Lite, cgc mcp setup done), google-search (built-in). Playwright installed, deferred to T1.2. FastMCP installed via pipx. Running via Windows Gemini CLI -\u003e wsl -d Ubuntu pattern."
-                           },
-                  "T0.3":  {
-                               "status":  "complete",
-                               "session":  "S03",
-                               "notes":  "Design tokens created in packages/ui-tokens: colors.ts, typography.ts, spacing.ts, shadows.ts. 12 component stubs created in apps/mobile/src/components: ActionButton, AlertBanner, BalanceCard, InputField, InvoiceCard, MetricTile, ProgressRing, SectionCard, SkeletonLoader, StatusBadge, TransactionRow. Dark/light themes implemented."
-                           },
-                  "T0.4":  {
-                               "status":  "complete",
-                               "session":  "S04",
-                               "notes":  "PostgreSQL 16 schema implemented. Tables: businesses, ledger (partitioned by business_id), invoices, payments, vat_returns. Append-only trigger on ledger blocks UPDATE/DELETE. SHA-256 checksum chain function. 5 test businesses seeded. Migration at apps/api/src/migrations/initial_schema.sql."
-                           },
-                  "T0.5":  {
-                               "status":  "complete",
-                               "session":  "S05",
-                               "notes":  "CONTRIBUTING.md created with full session protocol, execution environment rules, MCP server guide, financial code rules. GEMINI_TEMPLATE.md created as master brief template. progress.txt schema confirmed and formalised."
-                           },
-                  "T1.1":  {
-                               "status":  "complete",
-                               "session":  "S06",
-                               "notes":  "T1.1 COMPLETE: All 4 onboarding screens built (type, pin, mpesa, kyc, complete). NestJS API endpoints live at /api/onboard/. GavaConnect stub, Daraja stub, DTOs with class-validator. Step-resume logic in index.tsx. registerEtims called on complete. tsc clean on both workspaces."
-                           },
-                  "T1.2":  {
-                               "status":  "complete",
-                               "session":  "S07",
-                               "notes":  "Dashboard home screen built. BalanceCard, 4 MetricTiles, TCC AlertBanner, RecentTransactions, ActionRow. Skeleton loaders. Offline mode with cached data. GET /api/dashboard/summary live. Shared-types migration: DashboardSummary, Business, Invoice, Payment, OnboardingData moved to @biasharasmart/shared-types. All 3 workspaces tsc clean. GEMINI_TEMPLATE updated with schema validation pre-check."
-                           },
-                  "T1.3":  {
-                               "status":  "complete",
-                               "notes":  "T1.3 COMPLETE: 5 API endpoints, invoice list+create+detail+PDF share, offline queue auto-sync on reconnect. Full flow tested. tsc clean on both workspaces."
-                           },
-                  "T1.4":  {
-                               "status":  "complete",
-                               "session":  "S08",
-                               "notes":  "T1.4 COMPLETE: Dual-arch payments. Legacy: M-Pesa reconcile, 5pct WHT liability, ledger. Gateway: STK push sandbox, Daraja webhook, ledger. WHT summary. Payments+confirm screens. Dashboard WHT+BiaScore tiles + gateway upsell. tsc clean."
-                           },
-                  "T1.5":  {
-                               "status":  "not_started",
-                               "session":  null,
-                               "notes":  ""
-                           },
-                  "T1.6":  {
-                               "status":  "not_started",
-                               "session":  null,
-                               "notes":  ""
-                           },
-                  "T2.1":  {
-                               "status":  "not_started",
-                               "session":  null,
-                               "notes":  ""
-                           },
-                  "T2.2":  {
-                               "status":  "not_started",
-                               "session":  null,
-                               "notes":  ""
-                           },
-                  "T2.3":  {
-                               "status":  "not_started",
-                               "session":  null,
-                               "notes":  ""
-                           },
-                  "T2.4":  {
-                               "status":  "not_started",
-                               "session":  null,
-                               "notes":  ""
-                           },
-                  "T3.1":  {
-                               "status":  "not_started",
-                               "session":  null,
-                               "notes":  ""
-                           },
-                  "T3.2":  {
-                               "status":  "not_started",
-                               "session":  null,
-                               "notes":  ""
-                           },
-                  "T3.3":  {
-                               "status":  "not_started",
-                               "session":  null,
-                               "notes":  ""
-                           },
-                  "T3.4":  {
-                               "status":  "not_started",
-                               "session":  null,
-                               "notes":  ""
-                           }
-              },
-    "blockers":  [
-
-                 ],
-    "last_good_state":  {
-                            "branch":  "main",
-                            "commit":  "0003c2d",
-                            "all_tests_passing":  true
-                        }
+  "tasks": {
+    "T0.1": {
+      "status": "complete",
+      "notes": "Project Scaffold & Monorepo Setup"
+    },
+    "T0.2": {
+      "status": "complete",
+      "notes": "MCP Server Setup"
+    },
+    "T0.3": {
+      "status": "complete",
+      "notes": "Design Token System"
+    },
+    "T0.4": {
+      "status": "complete",
+      "notes": "Database Schema & Ledger Foundation"
+    },
+    "T0.5": {
+      "status": "complete",
+      "notes": "progress.txt + GEMINI.md Initialisation"
+    },
+    "T1.1": {
+      "status": "complete",
+      "notes": "Onboarding Flow — All 4 Screens"
+    },
+    "T1.2": {
+      "status": "complete",
+      "notes": "Dashboard — Home Screen"
+    },
+    "T1.3": {
+      "status": "complete",
+      "notes": "Invoice Engine — List + Create + Detail"
+    },
+    "T1.4": {
+      "status": "complete",
+      "notes": "M-Pesa Payment Integration"
+    },
+    "T1.5": {
+      "status": "complete",
+      "notes": "TCC status screen with ProgressRing, StatusBadge, 1hr cached GavaConnect check, iTax deeplink. More tab menu built. tsc clean."
+    },
+    "T1.6": {
+      "status": "not_started",
+      "notes": ""
+    },
+    "T2.1": {
+      "status": "not_started",
+      "notes": ""
+    },
+    "T2.2": {
+      "status": "not_started",
+      "notes": ""
+    },
+    "T2.3": {
+      "status": "not_started",
+      "notes": ""
+    },
+    "T2.4": {
+      "status": "not_started",
+      "notes": ""
+    },
+    "T3.1": {
+      "status": "not_started",
+      "notes": ""
+    },
+    "T3.2": {
+      "status": "not_started",
+      "notes": ""
+    },
+    "T3.3": {
+      "status": "not_started",
+      "notes": ""
+    },
+    "T3.4": {
+      "status": "not_started",
+      "notes": ""
+    }
+  },
+  "current_task": "T1.5",
+  "last_updated": "2026-03-06T08:45:00Z"
 }
