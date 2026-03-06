@@ -1,83 +1,83 @@
-﻿{
-    "tasks":  {
-                  "T0.1":  {
-                               "status":  "complete",
-                               "notes":  "Project Scaffold \u0026 Monorepo Setup"
-                           },
-                  "T0.2":  {
-                               "status":  "complete",
-                               "notes":  "MCP Server Setup"
-                           },
-                  "T0.3":  {
-                               "status":  "complete",
-                               "notes":  "Design Token System"
-                           },
-                  "T0.4":  {
-                               "status":  "complete",
-                               "notes":  "Database Schema \u0026 Ledger Foundation"
-                           },
-                  "T0.5":  {
-                               "status":  "complete",
-                               "notes":  "progress.txt + GEMINI.md Initialisation"
-                           },
-                  "T1.1":  {
-                               "status":  "complete",
-                               "notes":  "Onboarding Flow â€” All 4 Screens"
-                           },
-                  "T1.2":  {
-                               "status":  "complete",
-                               "notes":  "Dashboard â€” Home Screen"
-                           },
-                  "T1.3":  {
-                               "status":  "complete",
-                               "notes":  "Invoice Engine â€” List + Create + Detail"
-                           },
-                  "T1.4":  {
-                               "status":  "complete",
-                               "notes":  "M-Pesa Payment Integration"
-                           },
-                  "T1.5":  {
-                               "status":  "complete",
-                               "notes":  "T1.5 COMPLETE: TCC status screen with ProgressRing, StatusBadge, 1hr cached GavaConnect check, iTax deeplink. More tab menu built. tsc clean. progress.txt initialized and updated."
-                           },
-                  "T1.6":  {
-                               "status":  "complete",
-                               "notes":  "T1.6 COMPLETE: Admin console. RBAC (super_admin/operator/auditor/viewer). KYC queue+review. Business search+detail. System health. In-memory audit log. All endpoints tested. API build clean."
-                           },
-                  "T2.1":  {
-                               "status":  "complete",
-                               "notes":  "T2.1 COMPLETE: VAT filing engine. Period calculator, output VAT from paid invoices, GavaConnect stub submission, ledger entry. VAT list + detail screens. More tab wired. API and Mobile build clean. Endpoints tested."
-                           },
-                  "T2.2":  {
-                               "status":  "complete",
-                               "notes":  "T2.2 COMPLETE: Biashara Score engine. Consistency+TaxHygiene+Growth formula. Score saved to business. Score screen with ProgressRing + breakdown + tips. Dashboard now shows real score."
-                           },
-                  "T2.3":  {
-                               "status":  "complete",
-                               "notes":  "T2.3 COMPLETE: Push notifications. WHT deadline alerts (1day, 3day, overdue), KRA sync, score milestone. Expo push tokens stored. Daily cron scheduler. Mobile registers token on load."
-                           },
-                  "T2.4":  {
-                               "status":  "not_started",
-                               "notes":  ""
-                           },
-                  "T3.1":  {
-                               "status":  "not_started",
-                               "notes":  ""
-                           },
-                  "T3.2":  {
-                               "status":  "not_started",
-                               "notes":  ""
-                           },
-                  "T3.3":  {
-                               "status":  "not_started",
-                               "notes":  ""
-                           },
-                  "T3.4":  {
-                               "status":  "not_started",
-                               "notes":  ""
-                           }
-              },
-    "current_task":  "T2.4",
-    "current_phase":  2,
-    "last_updated":  "2026-03-06T09:18:49.606739+00:00"
+{
+  "tasks": {
+    "T0.1": {
+      "status": "complete",
+      "notes": "Project Scaffold & Monorepo Setup"
+    },
+    "T0.2": {
+      "status": "complete",
+      "notes": "MCP Server Setup"
+    },
+    "T0.3": {
+      "status": "complete",
+      "notes": "Design Token System"
+    },
+    "T0.4": {
+      "status": "complete",
+      "notes": "Database Schema & Ledger Foundation"
+    },
+    "T0.5": {
+      "status": "complete",
+      "notes": "progress.txt + GEMINI.md Initialisation"
+    },
+    "T1.1": {
+      "status": "complete",
+      "notes": "Onboarding Flow \u00e2\u20ac\u201d All 4 Screens"
+    },
+    "T1.2": {
+      "status": "complete",
+      "notes": "Dashboard \u00e2\u20ac\u201d Home Screen"
+    },
+    "T1.3": {
+      "status": "complete",
+      "notes": "Invoice Engine \u00e2\u20ac\u201d List + Create + Detail"
+    },
+    "T1.4": {
+      "status": "complete",
+      "notes": "M-Pesa Payment Integration"
+    },
+    "T1.5": {
+      "status": "complete",
+      "notes": "T1.5 COMPLETE: TCC status screen with ProgressRing, StatusBadge, 1hr cached GavaConnect check, iTax deeplink. More tab menu built. tsc clean. progress.txt initialized and updated."
+    },
+    "T1.6": {
+      "status": "complete",
+      "notes": "T1.6 COMPLETE: Admin console. RBAC (super_admin/operator/auditor/viewer). KYC queue+review. Business search+detail. System health. In-memory audit log. All endpoints tested. API build clean."
+    },
+    "T2.1": {
+      "status": "complete",
+      "notes": "T2.1 COMPLETE: VAT filing engine. Period calculator, output VAT from paid invoices, GavaConnect stub submission, ledger entry. VAT list + detail screens. More tab wired. API and Mobile build clean. Endpoints tested."
+    },
+    "T2.2": {
+      "status": "complete",
+      "notes": "T2.2 COMPLETE: Biashara Score engine. Consistency+TaxHygiene+Growth formula. Score saved to business. Score screen with ProgressRing + breakdown + tips. Dashboard now shows real score."
+    },
+    "T2.3": {
+      "status": "complete",
+      "notes": "T2.3 COMPLETE: Push notifications. WHT deadline alerts (1day, 3day, overdue), KRA sync, score milestone. Expo push tokens stored. Daily cron scheduler. Mobile registers token on load."
+    },
+    "T2.4": {
+      "status": "complete",
+      "notes": "T2.4 COMPLETE: Reports \u2014 P&L, KRA Reconciliation, WHT Statement. All 3 API endpoints. PDF export via expo-print. Reports menu screen with month selector. More tab wired. API and Mobile builds clean. PHASE 2 DONE."
+    },
+    "T3.1": {
+      "status": "not_started",
+      "notes": ""
+    },
+    "T3.2": {
+      "status": "not_started",
+      "notes": ""
+    },
+    "T3.3": {
+      "status": "not_started",
+      "notes": ""
+    },
+    "T3.4": {
+      "status": "not_started",
+      "notes": ""
+    }
+  },
+  "current_task": "T3.1",
+  "current_phase": 3,
+  "last_updated": "2026-03-06T09:42:39.582734+00:00"
 }
