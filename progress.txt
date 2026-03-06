@@ -41,8 +41,8 @@
       "notes": "T1.5 COMPLETE: TCC status screen with ProgressRing, StatusBadge, 1hr cached GavaConnect check, iTax deeplink. More tab menu built. tsc clean. progress.txt initialized and updated."
     },
     "T1.6": {
-      "status": "not_started",
-      "notes": ""
+      "status": "complete",
+      "notes": "T1.6 COMPLETE: Admin console. RBAC (super_admin/operator/auditor/viewer). KYC queue+review. Business search+detail. System health. In-memory audit log. All endpoints tested. API build clean."
     },
     "T2.1": {
       "status": "not_started",
@@ -77,6 +77,7 @@
       "notes": ""
     }
   },
-  "current_task": "T1.5",
-  "last_updated": "2026-03-06T05:49:39.402479+00:00"
+  "current_task": "T2.1",
+  "current_phase": 2,
+  "last_updated": "2026-03-06T06:40:00.000000+00:00"
 }

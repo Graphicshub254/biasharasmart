@@ -8,6 +8,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { InvoicesModule } from './invoices/invoices.module';
 import { PaymentsModule } from './payments/payments.module';
 import { TccModule } from './tcc/tcc.module';
+import { AdminModule } from './admin/admin.module';
 import databaseConfig from './config/database.config';
 
 @Module({
@@ -22,6 +23,7 @@ import databaseConfig from './config/database.config';
     InvoicesModule,
     PaymentsModule,
     TccModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],
