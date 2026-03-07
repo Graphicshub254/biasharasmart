@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThan, LessThan, In } from 'typeorm';
 import { Payment, PaymentStatus } from '../entities/payment.entity';
@@ -7,6 +7,7 @@ import { Business } from '../entities/business.entity';
 import { WhtLiability, WhtLiabilityStatus } from '../entities/wht-liability.entity';
 import { Ledger, EntryType } from '../entities/ledger.entity';
 import { DarajaPaymentsService } from './daraja.service';
+import { FraudService } from '../fraud/fraud.service';
 import { InitiatePaymentDto } from './dto/initiate-payment.dto';
 import { ReconcilePaymentDto } from './dto/reconcile-payment.dto';
 import { WHT_RATE, WHT_REMITTANCE_DAYS } from '@biasharasmart/shared-types';
@@ -28,6 +29,7 @@ export class PaymentsService {
     @InjectRepository(Ledger)
     private readonly ledgerRepo: Repository<Ledger>,
     private readonly darajaService: DarajaPaymentsService,
+    private readonly fraudService: FraudService,
   ) {}
 
   async initiateGatewayPayment(dto: InitiatePaymentDto) {
@@ -38,7 +40,20 @@ export class PaymentsService {
       throw new NotFoundException('Invoice not found');
     }
 
+    const business = await this.businessRepo.findOne({ where: { id: invoice.businessId } });
+    if (business?.vaultMode) {
+      throw new ForbiddenException('Vault Mode active — payments frozen. Contact support.');
+    }
+
     const total = Number(invoice.totalKes);
+
+    // Check anomaly
+    const isAnomaly = await this.fraudService.checkTransactionAnomaly(invoice.businessId, total);
+    if (isAnomaly) {
+      // Still process but flag it
+      this.logger.warn(`Anomaly flagged for invoice ${dto.invoiceId}`);
+    }
+
     const whtAmount = +(total * WHT_RATE).toFixed(2);
     const merchantAmount = +(total - whtAmount).toFixed(2);
 

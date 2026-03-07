@@ -4,207 +4,221 @@
 ## Environment rules
 - You run on Windows PowerShell
 - All Linux commands: wsl -d Ubuntu -- cmd
-- All Python tools: ~/.local/bin/tool
+- Yarn: /home/bishop/.npm-global/bin/yarn
 - Project WSL path: /home/bishop/projects/biasharasmart
-- Write files via Set-Content to \\wsl$\Ubuntu\home\bishop\projects\biasharasmart\file
-- Never use bare pip install — always pipx
-- Never use --break-system-packages
+- Write files via write_file tool only — never heredoc
+- JSON payloads: write to /tmp/file.json via python3, then curl -d @/tmp/file.json
+- git --no-pager always
+- \pset pager off for all psql commands
+- Never use pip/pipx directly — use yarn for JS deps
+
+## ─── SESSION CHECKPOINT SYSTEM ────────────────────────────────────────────
+## CRITICAL: After completing EACH step, immediately write a checkpoint.
+## This lets us recover exactly where you stopped if the window reloads or crashes.
+##
+## Write checkpoint after EVERY major step using this command:
+##
+## powershell:
+## $p = "\\wsl$\Ubuntu\home\bishop\projects\biasharasmart\progress.txt"
+## $raw = [System.IO.File]::ReadAllText($p).TrimStart([char]0xFEFF)
+## $d = $raw | ConvertFrom-Json
+## $d.tasks.'T[X.Y]'.checkpoint = "STEP_N_COMPLETE: [what was just done] at $(Get-Date -Format 'HH:mm')"
+## [System.IO.File]::WriteAllText($p, ($d | ConvertTo-Json -Depth 10), [System.Text.Encoding]::UTF8)
+##
+## Example checkpoints to write:
+## "STEP_1_COMPLETE: DB migration ran, wht_liabilities table created at 02:14"
+## "STEP_2_COMPLETE: payment.entity.ts updated with 5 new columns at 02:19"
+## "STEP_3_COMPLETE: payments.service.ts created 312 lines at 02:31"
+## "STEP_4_COMPLETE: API build clean at 02:38"
+## "STEP_5_COMPLETE: Mobile screens created, tsc clean at 02:47"
+##
+## On session START, always read the last checkpoint first:
+## wsl -d Ubuntu -- bash -c "python3 -c \"import json,pathlib; d=json.loads(pathlib.Path('/home/bishop/projects/biasharasmart/progress.txt').read_text(encoding='utf-8-sig')); print('Last checkpoint:', d['tasks'].get('T[X.Y]', {}).get('checkpoint', 'NONE — starting fresh'))\""
+## ─────────────────────────────────────────────────────────────────────────────
 
 ## Read first
-Get-Content "\\wsl$\Ubuntu\home\bishop\projects\biasharasmart\progress.txt"
-
-## MCP resources to query before writing any code
-prd://features/T[X.Y]
-progress://current
-filesystem://apps/...
-@search [API name] 2025
+wsl -d Ubuntu -- bash -c "python3 -c \"import json,pathlib; d=json.loads(pathlib.Path('/home/bishop/projects/biasharasmart/progress.txt').read_text(encoding='utf-8-sig')); print('Current task:', d['current_task']); print('Last checkpoint:', d['tasks'].get('T[X.Y]',{}).get('checkpoint','NONE'))\""
 
 ## Pre-checks
-wsl -d Ubuntu -- bash -c "test -f /home/bishop/projects/biasharasmart/[file] && echo OK || echo MISSING"
-If MISSING: stop, do not proceed.
 
-### Schema validation pre-check (run before any DB-touching task)
 ```powershell
-wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && yarn workspace @biasharasmart/api typeorm schema:log 2>&1 | grep -E 'missing|would|alter' | head -20 || echo 'Schema in sync'"
+# 1. Previous task complete
+wsl -d Ubuntu -- bash -c "python3 -c \"import json,pathlib; d=json.loads(pathlib.Path('/home/bishop/projects/biasharasmart/progress.txt').read_text(encoding='utf-8-sig')); print(d['tasks']['T[PREV]']['status'])\""
 ```
-If output shows missing columns or ALTER statements: fix the schema before proceeding.
+
+```powershell
+# 2. Both builds clean before starting
+wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api build 2>&1 | tail -5"
+wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/mobile tsc --noEmit 2>&1 | tail -5"
+```
+
+```powershell
+# 3. Schema validation pre-check (run before any DB-touching task)
+wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api typeorm schema:log 2>&1 | grep -E 'missing|would|alter' | head -20 || echo 'Schema in sync'"
+```
+
+```powershell
+# 4. Read relevant entity/component files before writing any code
+wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/api/src/entities/[relevant].entity.ts"
+```
 
 ## What to build
+
 [Exact description of what this session produces]
 
-### Step 1 — [name]
-[exact powershell command]
+---
+
+## Step 1 — [name]
+[exact command]
 Expected: [success output]
 
-### Step N — Verify exit criteria
+**→ WRITE CHECKPOINT after this step:**
+```powershell
+$p = "\\wsl$\Ubuntu\home\bishop\projects\biasharasmart\progress.txt"
+$raw = [System.IO.File]::ReadAllText($p).TrimStart([char]0xFEFF)
+$d = $raw | ConvertFrom-Json
+$d.tasks.'T[X.Y]'.checkpoint = "STEP_1_COMPLETE: [what was done] at $(Get-Date -Format 'HH:mm')"
+[System.IO.File]::WriteAllText($p, ($d | ConvertTo-Json -Depth 10), [System.Text.Encoding]::UTF8)
+```
+
+---
+
+## Step 2 — [name]
+[exact command]
+Expected: [success output]
+
+**→ WRITE CHECKPOINT after this step:**
+```powershell
+$d.tasks.'T[X.Y]'.checkpoint = "STEP_2_COMPLETE: [what was done] at $(Get-Date -Format 'HH:mm')"
+```
+
+---
+
+## Step N — Verify exit criteria
 [one verification command per criterion]
 
+**→ WRITE CHECKPOINT:**
+```powershell
+$d.tasks.'T[X.Y]'.checkpoint = "ALL_STEPS_COMPLETE: Ready to commit at $(Get-Date -Format 'HH:mm')"
+```
+
+---
+
 ## Production-Ready Checklist (The "Shift-Left" Guide)
-Before marking a task as complete, verify these 5 pillars:
-1. **Type Safety:** Run `yarn workspace @biasharasmart/api build` and `yarn workspace @biasharasmart/mobile tsc`. Zero errors allowed.
-2. **Schema Integrity:** Ensure entities match `initial_schema.sql`. New fields MUST be added to migrations.
-3. **Ledger Fidelity:** Any financial move (VAT, Payment, Invoice) MUST write a ledger entry with a valid checksum.
-4. **Mobile Sync:** Ensure `shared-types` are updated if API DTOs change. Run `setup_tokens.js` if UI tokens change.
-5. **Security:** No hardcoded IDs. Use `:businessId` or `:id` params. Validate ownership in services.
+Before marking complete, verify these 5 pillars:
+1. **Type Safety:** `yarn workspace @biasharasmart/api build` + `yarn workspace @biasharasmart/mobile tsc --noEmit` — zero errors
+2. **Schema Integrity:** Entities match `initial_schema.sql`. New fields added to migrations.
+3. **Ledger Fidelity:** Any financial move (VAT, Payment, Invoice) MUST write a ledger entry with valid checksum.
+4. **Mobile Sync:** `shared-types` updated if API DTOs change.
+5. **Security:** No hardcoded IDs. Use `:businessId` params. Validate ownership in services.
+
+---
 
 ## Standardized Endpoint Testing Patterns
-Use these patterns to ensure 100% coverage and faster debugging.
 
-### 1. The "Happy Path" (Success)
+### 1. Happy Path
 ```powershell
-wsl -d Ubuntu -- bash -c "curl -s -X GET http://localhost:3000/api/[endpoint] | python3 -m json.tool"
-# Look for: 200/201 status, expected JSON structure, non-null IDs.
+wsl -d Ubuntu -- bash -c "curl -s http://localhost:3000/api/[endpoint] | python3 -m json.tool"
 ```
 
-### 2. The "Bad Input" (Validation)
+### 2. Bad Input (Validation — expect 400)
 ```powershell
-# Create invalid payload
-wsl -d Ubuntu -- bash -c "echo '{\"invalid_field\": \"data\"}' > /tmp/bad_payload.json"
-wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/[endpoint] -H 'Content-Type: application/json' -d @/tmp/bad_payload.json | python3 -m json.tool"
-# Look for: 400 Bad Request, descriptive validation messages.
+wsl -d Ubuntu -- bash -c "python3 -c \"open('/tmp/bad.json','w').write('{\\\"invalid\\\":\\\"data\\\"}')\"" 
+wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/[endpoint] -H 'Content-Type: application/json' -d @/tmp/bad.json | python3 -m json.tool"
 ```
 
-### 3. The "Not Found" (Edge Case)
+### 3. Not Found (expect 404)
 ```powershell
-wsl -d Ubuntu -- bash -c "curl -s -i http://localhost:3000/api/[endpoint]/non-existent-uuid"
-# Look for: 404 Not Found in the headers (-i flag).
+wsl -d Ubuntu -- bash -c "curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/[endpoint]/00000000-0000-0000-0000-000000000000"
 ```
 
-### 4. The "Pagination" (Consistency)
+### 4. Pagination
 ```powershell
 wsl -d Ubuntu -- bash -c "curl -s 'http://localhost:3000/api/[endpoint]?page=1&limit=1' | python3 -m json.tool"
-# Look for: { data: [...], total: X, page: 1, limit: 1 } structure.
 ```
 
-## How to Help Others (Peer Review Guide)
-If reviewing or assisting a teammate:
-- **Check Entity Mappings:** Did they use `@Column({ type: 'decimal', precision: 12, scale: 2 })` for KES amounts? (Crucial for precision).
-- **Check DTO Validation:** Are `@IsUUID()`, `@IsNumber()`, `@IsEnum()` decorators present?
-- **Check Mobile Error Handling:** Does the screen show an `Alert.alert` or just log to console? (Must show UI feedback).
-- **Check naming:** Use `CamelCase` for TS/JS, `snake_case` for SQL/JSON.
-
-## Fast Production Shortcuts
-- **Skip the Sleep:** Use Pitfall #4's polling loop instead of waiting 30s.
-- **Parallel Builds:** Run `yarn build` in API while you work on Mobile.
-- **Payload Reuse:** Keep a `test/payloads/` folder for common JSON bodies.
-- **Alias it:** Add `alias bs-api='yarn workspace @biasharasmart/api'` to your WSL `.bashrc`.
-
-## Session S2.3 Findings
-### Challenges & Solutions
-1. **TypeScript Definition Mismatch**: `expo-notifications` required `shouldShowBanner` and `shouldShowList` in `NotificationBehavior`.
-   - **Solution**: Explicitly added all required properties to the `setNotificationHandler` config.
-2. **Module Circularity**: Needed `NotificationsService` in `InvoicesService` and `ScoreService`.
-   - **Solution**: Imported `NotificationsModule` into the respective feature modules.
-3. **WSL Directory Creation**: Windows-based `create_directory` tool sometimes fails on WSL paths.
-   - **Solution**: Use `wsl -d Ubuntu -- bash -c "mkdir -p ..."` for reliable folder creation.
-4. **Missing Dependencies**: `expo-notifications` and `expo-server-sdk` were not pre-installed.
-   - **Solution**: Run `yarn workspace ... add [pkg]` immediately after reading `GEMINI.md` pre-checks.
-
-### Advice for Next Session (T2.4 — Biashara Loan)
-- **Dependency Audit**: Verify `expo-secure-store` or other local-auth/storage libs are present if building a loan application flow.
-- **Ledger Hooks**: Any loan disbursement or repayment MUST trigger a `Ledger` entry with a valid checksum (Pitfall #3).
-- **Score Gatekeeping**: Reuse the `ScoreService.calculateScore()` logic to check if `total >= 600` before showing the loan application UI.
-- **Shared Types**: Update `packages/shared-types` early if adding `LoanRequest` or `LoanStatus` enums to avoid mobile build breaks.
+---
 
 ## Exit criteria — ALL must pass
-- [ ] [specific testable binary criterion]
-- [ ] [specific testable binary criterion]
+- [ ] [specific testable criterion]
+- [ ] [specific testable criterion]
+- [ ] API build: zero errors
+- [ ] Mobile tsc: zero errors
+- [ ] Checkpoint written for every step
+
+---
 
 ## Do NOT do
-- [wrong approach 1]
-- [wrong approach 2]
 - Do not modify any task in progress.txt other than T[X.Y]
+- Do not use heredoc for TypeScript files — write_file tool only
+- Do not use bare git diff — always git --no-pager
+- Do not use find /
+- Do not use bare psql without \pset pager off
+
+---
 
 ## Known Pitfalls
-1. **Pager trap (most common)**
-   Symptom: Shell shows `:` and hangs waiting for input.
-   Fix: Always add these flags:
-   `git --no-pager <command>`
-   `psql ... -c '\pset pager off' -c '<query>'`
 
-2. **Quote hell in PowerShell → WSL → Bash → Python**
-   Symptom: Unexpected EOF, syntax errors, missing expressions.
-   Fix: Never try to build complex JSON strings inside `wsl -d Ubuntu -- bash -c`. If a 1-liner fails, use the `write_file` tool to create a temporary `.json` file in the project root (e.g., `test_payload.json`), then use it in curl:
-   `wsl -d Ubuntu -- bash -c "/usr/bin/curl -s -X POST http://localhost:3000/api/endpoint -H 'Content-Type: application/json' -d @/home/bishop/projects/biasharasmart/test_payload.json | python3 -m json.tool"`
+1. **Pager trap** — Shell shows `:` and hangs.
+   Fix: `git --no-pager <cmd>` | `psql ... -c '\pset pager off'`
 
-3. **Heredoc mangling TypeScript template literals**
-   Symptom: `${variable}` gets swallowed, backticks break.
-   Fix: Never use heredoc for TypeScript/SQL. Use `write_file` tool only.
+2. **Quote hell PowerShell→WSL→Bash→Python**
+   Fix: Use `python3 -c "open('/tmp/file.json','w').write(json.dumps({...}))"` — never inline JSON in curl
+
+3. **Heredoc mangling TypeScript**
+   Fix: write_file tool only for TypeScript/SQL
 
 4. **API not ready before curl tests**
-   Symptom: Connection refused, empty response, exit code 1.
-   Fix: Poll the log instead of sleeping blindly:
+   Fix: Poll log instead of sleeping:
    ```powershell
    Start-Job -ScriptBlock { wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api start:dev 2>&1 | tee /tmp/api.log" }
    for ($i = 0; $i -lt 12; $i++) {
-       Start-Sleep -Seconds 5
-       $ready = wsl -d Ubuntu -- bash -c "grep -c 'Nest application successfully started' /tmp/api.log 2>/dev/null || echo 0"
-       if ($ready -gt 0) { Write-Host "API READY"; break }
-       Write-Host "Waiting... ($($($i+1)*5)s)"
+     Start-Sleep -Seconds 5
+     $ready = wsl -d Ubuntu -- bash -c "grep -c 'Nest application successfully started' /tmp/api.log 2>/dev/null || echo 0"
+     if ($ready -gt 0) { Write-Host "API READY"; break }
+     Write-Host "Waiting... ($($($i+1)*5)s)"
    }
    ```
 
-5. **yarn not found**
-   Symptom: `yarn: command not found`
-   Fix: Always use absolute path:
-   `/home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api build`
+5. **yarn not found** — Fix: Always use `/home/bishop/.npm-global/bin/yarn`
 
-6. **wsl command not found (running inside WSL already)**
-   Symptom: `Command 'wsl' not found`
-   Fix: When already in WSL terminal, run Linux commands directly without `wsl -d Ubuntu --` prefix.
+6. **wsl not found (already in WSL)** — Fix: Run Linux commands directly, no wsl prefix
 
-7. **git diff opens pager mid-session**
-   Symptom: Diff shown with `:` prompt, Gemini waits forever.
-   Fix: Never use bare `git diff`. Always:
-   `git --no-pager diff <file>`
-   `git --no-pager log --oneline -5`
-   `git --no-pager status`
+7. **git diff opens pager** — Fix: Always `git --no-pager diff <file>`
 
-8. **TypeScript errors from entity field name mismatches**
-   Symptom: Build fails after adding new code that references entity fields.
-   Fix: Always read entity files before writing service code:
-   `cat apps/api/src/entities/payment.entity.ts`
-   `cat apps/api/src/entities/business.entity.ts`
-   Use exact field names — `amountKes` not `amount_kes`, `paymentFlow` not `payment_flow`.
+8. **Entity field name mismatches** — Fix: Read entity files before writing service code. Use camelCase TS (`amountKes`), snake_case SQL (`amount_kes`)
 
-9. **Route order bug in NestJS**
-   Symptom: `GET /api/payments/wht-summary/:businessId` returns 404 or wrong response.
-   Fix: In NestJS controllers, specific routes MUST come before wildcard routes:
+9. **NestJS route order bug** — Fix: Specific routes BEFORE wildcard routes in controller
    ```typescript
    @Get('wht-summary/:businessId')  // ← FIRST
-   getWhtSummary() {}
-
    @Get(':businessId')               // ← SECOND
-   listPayments() {}
    ```
 
 10. **progress.txt BOM encoding**
-    Symptom: `json.JSONDecodeError` when reading `progress.txt`.
-    Fix: Always read with BOM handling:
-    `data = json.loads(pathlib.Path('progress.txt').read_text(encoding='utf-8-sig'))`
-    Always write with UTF-8 (no BOM):
-    `p.write_text(json.dumps(data, indent=2), encoding='utf-8')`
+    Fix: Read: `encoding='utf-8-sig'` | Write: `encoding='utf-8'`
 
-11. **PowerShell `curl` Alias (The "Headers" Error)**
-    Symptom: `Invoke-WebRequest : Cannot bind parameter 'Headers'`.
-    Fix: In PowerShell, `curl` is an alias for `Invoke-WebRequest`. To use the real Linux curl, either:
-    - Always wrap in `wsl -d Ubuntu -- bash -c "curl ..."`
-    - Use the full path `/usr/bin/curl` inside the WSL context to avoid any shell ambiguity.
+11. **PowerShell curl alias** — Fix: Wrap in `wsl -d Ubuntu -- bash -c "curl ..."`
 
-12. **Background Jobs & "Connection Refused"**
-    Symptom: `curl` fails immediately after starting `start:dev`.
-    Fix: NestJS needs ~20-30 seconds to boot. Always add a `Start-Sleep -Seconds 25` or use the polling loop in Pitfall 4.
+12. **Background job connection refused** — Fix: Use polling loop (Pitfall 4), not fixed sleep
 
-13. **WSL Path Translation**
-    Symptom: `curl: could not open file @/tmp/test.json`.
-    Fix: If you use the `write_file` tool from Windows, the file is at `\\wsl.localhost\Ubuntu\home\bishop\...`. From inside WSL, that same file is at `/home/bishop/...`. Ensure your curl command uses the internal Linux path.
+13. **WSL path translation** — Fix: write_file creates at `\\wsl$\Ubuntu\...`, curl reads at `/home/bishop/...`
+
+14. **Checkpoint not written on crash** — Fix: Write checkpoint IMMEDIATELY after each step, before moving to next. Do not batch checkpoints.
+
+---
 
 ## On completion
-$p = "\\wsl$\Ubuntu\home\bishop\projects\biasharasmart\progress.txt"
-$d = Get-Content $p -Raw | ConvertFrom-Json
-$d.tasks.'T[X.Y]'.status = "complete"
-$d.tasks.'T[X.Y]'.notes = "[what was built]"
-$d.current_task = "T[next]"
-$d | ConvertTo-Json -Depth 10 | Set-Content $p -Encoding UTF8
 
-Print: T[X.Y] COMPLETE
+```powershell
+$p = "\\wsl$\Ubuntu\home\bishop\projects\biasharasmart\progress.txt"
+$raw = [System.IO.File]::ReadAllText($p).TrimStart([char]0xFEFF)
+$d = $raw | ConvertFrom-Json
+$d.tasks.'T[X.Y]'.status = "complete"
+$d.tasks.'T[X.Y]'.checkpoint = "COMPLETE: All steps done, committed at $(Get-Date -Format 'HH:mm')"
+$d.tasks.'T[X.Y]'.notes = "T[X.Y] COMPLETE: [what was built]"
+$d.current_task = "T[next]"
+[System.IO.File]::WriteAllText($p, ($d | ConvertTo-Json -Depth 10), [System.Text.Encoding]::UTF8)
+wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git add -A && git --no-pager commit -m 'T[X.Y]: [description]'"
+wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git push origin main"
+Write-Host "T[X.Y] COMPLETE"
+```

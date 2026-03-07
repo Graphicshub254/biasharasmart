@@ -10,10 +10,12 @@ const expo_router_1 = require("expo-router");
 const vector_icons_1 = require("@expo/vector-icons");
 const ui_tokens_1 = require("@biasharasmart/ui-tokens");
 const MENU_ITEMS = [
+    { label: 'Payroll', icon: 'people', route: '/payroll' },
     { label: 'Reports', icon: 'assessment', route: '/reports' },
     { label: 'Biashara Score', icon: 'speed', route: '/score' },
     { label: 'TCC Status', icon: 'verified', route: '/tcc' },
     { label: 'VAT Returns', icon: 'receipt-long', route: '/vat' },
+    { label: 'Security', icon: 'security', route: '/security' },
     { label: 'Business Profile', icon: 'business', route: '/profile', placeholder: 'Profile management coming in T1.6' },
 ];
 function MoreScreen() {

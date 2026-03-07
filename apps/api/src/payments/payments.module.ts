@@ -5,12 +5,14 @@ import { PaymentsController } from './payments.controller';
 import { DarajaPaymentsService } from './daraja.service';
 import { DatabaseModule } from '../database/database.module';
 import { OnboardingModule } from '../onboarding/onboarding.module';
+import { FraudModule } from '../fraud/fraud.module';
 
 @Module({
   imports: [
     HttpModule,
     DatabaseModule,
     OnboardingModule,
+    FraudModule,
   ],
   providers: [PaymentsService, DarajaPaymentsService],
   controllers: [PaymentsController],

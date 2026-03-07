@@ -1,281 +1,238 @@
-﻿  # GEMINI.md — Task Brief: T3.2
-## Task: USSD Gateway — Africa's Talking integration, feature phone menu, invoice + payment via USSD
+﻿# GEMINI.md — Task Brief: T3.3
+## Task: Biashara Fraud Shield — transaction secrets, SIM-swap detection, Vault Mode, anomaly flagging
 
 ## Environment rules
 - Same as all previous tasks
-- AT sandbox credentials are in .env: AT_USERNAME, AT_API_KEY, AT_USSD_CODE
 
 ## Pre-checks
 
 ```powershell
-wsl -d Ubuntu -- bash -c "grep -E 'AT_' /home/bishop/projects/biasharasmart/.env | sed 's/=.*/=<set>/'"
-wsl -d Ubuntu -- bash -c "python3 -c \"import json,pathlib; d=json.loads(pathlib.Path('/home/bishop/projects/biasharasmart/progress.txt').read_text(encoding='utf-8-sig')); print(d['tasks']['T3.1']['status'])\""
+wsl -d Ubuntu -- bash -c "python3 -c \"import json,pathlib; d=json.loads(pathlib.Path('/home/bishop/projects/biasharasmart/progress.txt').read_text(encoding='utf-8-sig')); print(d['tasks']['T3.2']['status'])\""
 wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api build 2>&1 | tail -5"
 ```
 
-## Install Africa's Talking SDK
+## DB migration
 
-```powershell
-wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api add africastalking"
+```sql
+-- Fraud events table
+CREATE TABLE IF NOT EXISTS fraud_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id UUID NOT NULL REFERENCES businesses(id),
+  event_type VARCHAR(50) NOT NULL, -- SIM_SWAP | ANOMALY | VAULT_TRIGGERED | LARGE_TRANSACTION
+  severity VARCHAR(20) DEFAULT 'medium', -- low | medium | high | critical
+  description TEXT,
+  metadata JSONB DEFAULT '{}',
+  resolved BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Add vault_mode to businesses
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='businesses' AND column_name='vault_mode'
+  ) THEN
+    ALTER TABLE businesses ADD COLUMN vault_mode BOOLEAN DEFAULT FALSE;
+    ALTER TABLE businesses ADD COLUMN vault_triggered_at TIMESTAMPTZ;
+  END IF;
+END $$;
+
+-- Add transaction_secret to businesses (3-digit code)
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='businesses' AND column_name='transaction_secret'
+  ) THEN
+    ALTER TABLE businesses ADD COLUMN transaction_secret VARCHAR(3);
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_fraud_events_business_id ON fraud_events(business_id);
+CREATE INDEX IF NOT EXISTS idx_fraud_events_event_type ON fraud_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_fraud_events_resolved ON fraud_events(resolved);
 ```
 
 ## What to build
 
 | File | What |
 |---|---|
-| `apps/api/src/ussd/ussd.module.ts` | USSD module |
-| `apps/api/src/ussd/ussd.controller.ts` | POST /api/ussd/callback — AT webhook |
-| `apps/api/src/ussd/ussd.service.ts` | Menu state machine |
-| `apps/api/src/ussd/ussd-session.store.ts` | In-memory session state |
+| `apps/api/src/fraud/fraud.module.ts` | Fraud Shield module |
+| `apps/api/src/fraud/fraud.controller.ts` | Fraud endpoints |
+| `apps/api/src/fraud/fraud.service.ts` | Detection logic |
+| `apps/api/src/entities/fraud-event.entity.ts` | FraudEvent entity |
+| `apps/mobile/app/security/index.tsx` | Security settings screen |
 
-## USSD Menu tree
+## Fraud detection rules
 
-```
-*384*12345#
-├── 1. Check Balance
-│   └── "Balance: KES X | WHT Due: KES Y"
-├── 2. Record Sale
-│   ├── Enter amount: ____
-│   ├── Enter customer phone: ____
-│   └── "Sale of KES X recorded. Invoice #XXXXXXXX"
-├── 3. Pay WHT
-│   └── "WHT due: KES X. Pay via M-Pesa to Paybill [XXXX]. Ref: WHT[date]"
-├── 4. My Score
-│   └── "Biashara Score: XXX/1000. [Eligible/Not eligible] for Co-op loan."
-└── 5. VAT Status
-    └── "VAT this month: KES X due. File by [date]."
-```
-
-## Session state machine
-
+### 1. Transaction secret validation
+Every STK push must include a 3-digit secret that the merchant set. Validates customer is genuine:
 ```typescript
-// ussd-session.store.ts
-interface UssdSession {
-  phone: string;
-  businessId: string | null;
-  step: string;
-  data: Record<string, any>;
-  lastActivity: Date;
-}
-
-export class UssdSessionStore {
-  private sessions = new Map<string, UssdSession>();
-
-  get(sessionId: string): UssdSession | undefined {
-    return this.sessions.get(sessionId);
-  }
-
-  set(sessionId: string, session: UssdSession): void {
-    this.sessions.set(sessionId, session);
-  }
-
-  delete(sessionId: string): void {
-    this.sessions.delete(sessionId);
-  }
-
-  // Clean sessions older than 5 minutes
-  cleanup(): void {
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-    for (const [id, session] of this.sessions) {
-      if (session.lastActivity < fiveMinutesAgo) this.sessions.delete(id);
-    }
-  }
+async validateTransactionSecret(businessId: string, secret: string): Promise<boolean> {
+  const business = await this.businessRepo.findOne({ where: { id: businessId } });
+  return business?.transactionSecret === secret;
 }
 ```
 
-## USSD service — state machine
-
+### 2. Large transaction anomaly
+Flag any single payment > 3x the business's average payment:
 ```typescript
-async handleUssd(params: {
-  sessionId: string;
-  serviceCode: string;
-  phoneNumber: string;
-  text: string;
-}): Promise<string> {
-  const { sessionId, phoneNumber, text } = params;
-  const parts = text.split('*');
-  const level = parts.length;
+async checkTransactionAnomaly(businessId: string, amountKes: number): Promise<boolean> {
+  const recent = await this.paymentRepo.find({
+    where: { businessId, status: PaymentStatus.CONFIRMED },
+    order: { createdAt: 'DESC' },
+    take: 20,
+  });
+  if (recent.length < 5) return false; // not enough history
 
-  // Find business by phone number
-  const business = await this.businessRepo.findOne({
-    where: [{ mpesaTill: phoneNumber }, { mpesaPaybill: phoneNumber }],
-  }) ?? await this.businessRepo.findOne({ where: { id: '7951dda8-a30e-4928-8350-b6c5662154a8' } }); // fallback for testing
+  const avg = recent.reduce((s, p) => s + Number(p.amountKes), 0) / recent.length;
+  const isAnomaly = amountKes > avg * 3;
 
-  // Level 0 — main menu
-  if (text === '') {
-    return `CON Welcome to BiasharaSmart
-1. Check Balance
-2. Record Sale
-3. Pay WHT
-4. My Bia Score
-5. VAT Status`;
-  }
-
-  // Level 1 — main menu selection
-  if (level === 1) {
-    switch (parts[0]) {
-      case '1': {
-        // Check balance
-        const wht = await this.paymentsService.getWhtSummary(business.id);
-        const recentPayments = await this.paymentRepo.find({
-          where: { businessId: business.id, status: PaymentStatus.CONFIRMED },
-          order: { createdAt: 'DESC' },
-          take: 1,
-        });
-        const lastPayment = recentPayments[0];
-        return `END Balance Summary
-Last payment: KES ${lastPayment ? Number(lastPayment.amountKes).toLocaleString() : '0'}
-WHT Due: KES ${wht.totalPending.toLocaleString()}
-Mode: ${wht.paymentMode.toUpperCase()}`;
-      }
-      case '2':
-        return `CON Record Sale
-Enter sale amount in KES:`;
-      case '3': {
-        const wht = await this.paymentsService.getWhtSummary(business.id);
-        return `END Pay WHT
-Amount Due: KES ${wht.totalPending.toLocaleString()}
-Pay via M-Pesa:
-Paybill: 247247
-Account: WHT${new Date().toISOString().slice(0,7).replace('-','')}
-Due: ${wht.nextDueDate ? new Date(wht.nextDueDate).toDateString() : 'N/A'}`;
-      }
-      case '4': {
-        const score = await this.scoreService.calculateScore(business.id);
-        return `END Biashara Score
-Score: ${score.total}/1000
-${score.loanEligible ? 'ELIGIBLE for Co-op loan' : `Need ${600 - score.total} more pts for loan`}
-Consistency: ${score.breakdown.consistency}/400
-Tax Hygiene: ${score.breakdown.taxHygiene}/300`;
-      }
-      case '5': {
-        const now = new Date();
-        const vatReturn = await this.vatReturnRepo.findOne({
-          where: {
-            businessId: business.id,
-            periodMonth: now.getMonth() + 1,
-            periodYear: now.getFullYear(),
-          },
-        });
-        return `END VAT Status - ${now.toLocaleString('en-KE', { month: 'long' })}
-Net VAT Due: KES ${vatReturn ? Number(vatReturn.netVatKes).toLocaleString() : '0'}
-Status: ${vatReturn?.status ?? 'No return yet'}
-File by: ${new Date(now.getFullYear(), now.getMonth() + 1, 20).toDateString()}`;
-      }
-      default:
-        return `END Invalid option. Dial ${process.env.AT_USSD_CODE} to start again.`;
-    }
-  }
-
-  // Level 2 — Record Sale flow
-  if (level === 2 && parts[0] === '2') {
-    const amount = parseFloat(parts[1]);
-    if (isNaN(amount) || amount <= 0) return `END Invalid amount. Please try again.`;
-    return `CON Sale: KES ${amount.toLocaleString()}
-Enter customer phone (254XXXXXXXXX) or 0 to skip:`;
-  }
-
-  // Level 3 — Record Sale confirm
-  if (level === 3 && parts[0] === '2') {
-    const amount = parseFloat(parts[1]);
-    const phone = parts[2] === '0' ? undefined : parts[2];
-
-    // Create invoice
-    const vatAmount = +(amount * 0.16 / 1.16).toFixed(2); // extract VAT from inclusive amount
-    const subtotal = +(amount - vatAmount).toFixed(2);
-
-    const invoice = await this.invoiceRepo.save(
-      this.invoiceRepo.create({
-        businessId: business.id,
-        customerPhone: phone,
-        lineItems: [{ description: 'USSD Sale', quantity: 1, unitPrice: subtotal, vatRate: 0.16 }],
-        subtotalKes: subtotal,
-        vatAmountKes: vatAmount,
-        totalKes: amount,
-        status: InvoiceStatus.ISSUED,
-      })
+  if (isAnomaly) {
+    await this.logFraudEvent(businessId, 'ANOMALY', 'high',
+      `Transaction KES ${amountKes} is ${(amountKes/avg).toFixed(1)}x avg (KES ${avg.toFixed(0)})`
     );
-
-    const whtAmount = +(amount * WHT_RATE).toFixed(2);
-    return `END Sale Recorded!
-Invoice: #${invoice.id.slice(-8).toUpperCase()}
-Amount: KES ${amount.toLocaleString()}
-VAT: KES ${vatAmount.toLocaleString()}
-WHT Due: KES ${whtAmount.toLocaleString()}
-Send M-Pesa prompt? Dial ${process.env.AT_USSD_CODE} > 2 to collect.`;
   }
-
-  return `END Session expired. Dial ${process.env.AT_USSD_CODE} to start again.`;
+  return isAnomaly;
 }
 ```
 
-## Controller
-
+### 3. SIM-swap detection (stub)
+Called when Daraja webhook comes from different phone than registered:
 ```typescript
-@Controller('ussd')
-export class UssdController {
-  @Post('callback')
-  @HttpCode(200)
-  async handleCallback(@Body() body: any, @Res() res: Response) {
-    // AT sends form-encoded data
-    const { sessionId, serviceCode, phoneNumber, text } = body;
-    const response = await this.ussdService.handleUssd({
-      sessionId, serviceCode, phoneNumber, text,
-    });
-    res.set('Content-Type', 'text/plain');
-    res.send(response);
-  }
+async detectSimSwap(businessId: string, currentPhone: string): Promise<void> {
+  const business = await this.businessRepo.findOne({ where: { id: businessId } });
+  // In production: check against Safaricom SIM-swap API
+  // In sandbox: flag if phone changes from registered mpesaTill
+  this.logger.warn(`SIM-swap check for ${businessId}: phone ${currentPhone}`);
 }
 ```
 
-**Important:** AT USSD callback sends `application/x-www-form-urlencoded`. Add to main.ts:
+### 4. Vault Mode
+24-hour withdrawal freeze triggered automatically on suspicious activity:
 ```typescript
-// Ensure urlencoded body parsing is enabled in NestJS
-app.use(express.urlencoded({ extended: true }));
+async triggerVaultMode(businessId: string, reason: string): Promise<void> {
+  await this.businessRepo.update(businessId, {
+    vaultMode: true,
+    vaultTriggeredAt: new Date(),
+  });
+
+  await this.logFraudEvent(businessId, 'VAULT_TRIGGERED', 'critical', reason);
+
+  // Send push notification
+  await this.notificationsService.sendNotificationForBusiness(
+    businessId,
+    'VAULT_MODE',
+    0,
+    '🔒 Vault Mode activated — withdrawals frozen for 24hrs. Contact support if this was not you.'
+  );
+}
+
+async checkVaultExpiry(): Promise<void> {
+  // Auto-release vault after 24 hours
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  await this.businessRepo.update(
+    { vaultMode: true, vaultTriggeredAt: LessThan(yesterday) },
+    { vaultMode: false, vaultTriggeredAt: null as any }
+  );
+}
 ```
 
-Read current main.ts before editing:
-```powershell
-wsl -d Ubuntu -- bash -c "cat /home/bishop/projects/biasharasmart/apps/api/src/main.ts"
+### 5. Wire fraud checks into payments service
+
+After T3.3 is built, add to `initiateGatewayPayment` in payments.service.ts:
+```typescript
+// Check anomaly
+const isAnomaly = await this.fraudService.checkTransactionAnomaly(invoice.businessId, total);
+if (isAnomaly) {
+  // Still process but flag it
+  this.logger.warn(`Anomaly flagged for invoice ${dto.invoiceId}`);
+}
+
+// Check vault mode
+const business = await this.businessRepo.findOne({ where: { id: invoice.businessId } });
+if (business?.vaultMode) {
+  throw new ForbiddenException('Vault Mode active — payments frozen. Contact support.');
+}
 ```
 
-## Testing with ngrok
+## API endpoints
 
-```powershell
-# Start API
-Start-Job -ScriptBlock { wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && /home/bishop/.npm-global/bin/yarn workspace @biasharasmart/api start:dev" }
-Start-Sleep -Seconds 20
+```typescript
+@Controller('fraud')
+@UseGuards(AdminGuard) // admin only
+export class FraudController {
+  @Get('events/:businessId')
+  getFraudEvents(@Param('businessId') businessId: string) { ... }
 
-# Start ngrok
-Start-Job -ScriptBlock { wsl -d Ubuntu -- bash -c "ngrok http 3000" }
-Start-Sleep -Seconds 5
+  @Post('vault/:businessId/trigger')
+  triggerVault(@Param('businessId') businessId: string, @Body('reason') reason: string) { ... }
 
-# Get ngrok URL
-wsl -d Ubuntu -- bash -c "curl -s http://localhost:4040/api/tunnels | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"tunnels\"][0][\"public_url\"])'"
+  @Post('vault/:businessId/release')
+  releaseVault(@Param('businessId') businessId: string) { ... }
+
+  @Post('secret/:businessId')
+  setTransactionSecret(@Param('businessId') businessId: string, @Body('secret') secret: string) { ... }
+
+  @Get('status/:businessId')
+  getFraudStatus(@Param('businessId') businessId: string) { ... }
+}
 ```
 
-Set callback URL in AT dashboard: `https://xxxx.ngrok.io/api/ussd/callback`
+Also add public endpoint (no admin guard):
+```typescript
+@Get('public/vault-status/:businessId')
+getVaultStatus(@Param('businessId') businessId: string) {
+  // Returns only { vaultMode: boolean } — safe to expose to mobile
+}
+```
 
-Simulate USSD session locally:
+## Mobile security screen
+
+### app/security/index.tsx
+- Header "Security"
+- Vault Mode card:
+  - Status: Active (red) | Inactive (green)
+  - "Activate Vault" button (triggers 24hr freeze)
+  - "Release Vault" button (only if active)
+- Transaction Secret card:
+  - Current 3-digit code display (masked: ***)
+  - "Change Secret" → input new 3-digit code
+- Recent Fraud Events list:
+  - Each event: type, severity badge, description, date
+  - Empty state: "No suspicious activity detected"
+
+Wire into More tab:
+```typescript
+{ label: 'Security', icon: 'security', route: '/security' }
+```
+
+## Build and test
+
 ```powershell
-# Main menu
-wsl -d Ubuntu -- bash -c "python3 -c \"import json; open('/tmp/ussd.json','w').write(json.dumps({'sessionId':'test123','serviceCode':'*384*12345#','phoneNumber':'254712345678','text':''}))\""
-wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/ussd/callback -H 'Content-Type: application/x-www-form-urlencoded' -d 'sessionId=test123&serviceCode=*384*12345%23&phoneNumber=254712345678&text='"
+# Test fraud status
+wsl -d Ubuntu -- bash -c "curl -s http://localhost:3000/api/fraud/public/vault-status/7951dda8-a30e-4928-8350-b6c5662154a8 | python3 -m json.tool"
 
-# Check balance
-wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/ussd/callback -H 'Content-Type: application/x-www-form-urlencoded' -d 'sessionId=test123&serviceCode=*384*12345%23&phoneNumber=254712345678&text=1'"
+# Set transaction secret (admin)
+wsl -d Ubuntu -- bash -c "python3 -c \"import json; open('/tmp/secret.json','w').write(json.dumps({'secret':'742'}))\""
+wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/fraud/secret/7951dda8-a30e-4928-8350-b6c5662154a8 -H 'x-admin-token: admin-operator-token-dev' -H 'Content-Type: application/json' -d @/tmp/secret.json | python3 -m json.tool"
+
+# Trigger vault mode
+wsl -d Ubuntu -- bash -c "python3 -c \"import json; open('/tmp/vault.json','w').write(json.dumps({'reason':'Test vault trigger'}))\""
+wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/fraud/vault/7951dda8-a30e-4928-8350-b6c5662154a8/trigger -H 'x-admin-token: admin-operator-token-dev' -H 'Content-Type: application/json' -d @/tmp/vault.json | python3 -m json.tool"
+
+# Verify vault active
+wsl -d Ubuntu -- bash -c "curl -s http://localhost:3000/api/fraud/public/vault-status/7951dda8-a30e-4928-8350-b6c5662154a8 | python3 -m json.tool"
 ```
 
 ## Exit criteria
-- [ ] POST /api/ussd/callback returns CON/END text responses
-- [ ] Main menu shows all 5 options
-- [ ] Check Balance returns real WHT + last payment data
-- [ ] Record Sale creates invoice, calculates VAT + WHT
-- [ ] Pay WHT shows correct amount + paybill instructions
-- [ ] My Score returns real Biashara Score
-- [ ] VAT Status returns current month VAT
-- [ ] API build: zero errors
-- [ ] urlencoded body parsing enabled in main.ts
+- [ ] fraud_events table + vault_mode + transaction_secret columns created
+- [ ] Large transaction anomaly detection working (>3x avg = flag)
+- [ ] Vault Mode triggers and freezes payments
+- [ ] Vault auto-releases after 24 hours (cron)
+- [ ] Transaction secret set + validated
+- [ ] Fraud checks wired into initiateGatewayPayment
+- [ ] Security screen shows vault status + recent events
+- [ ] API build + mobile tsc: zero errors
 
 ## On completion
 
@@ -283,11 +240,11 @@ wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/ussd/callbac
 $p = "\\wsl$\Ubuntu\home\bishop\projects\biasharasmart\progress.txt"
 $raw = [System.IO.File]::ReadAllText($p).TrimStart([char]0xFEFF)
 $d = $raw | ConvertFrom-Json
-$d.tasks.'T3.2'.status = "complete"
-$d.tasks.'T3.2'.notes = "T3.2 COMPLETE: USSD Gateway. AT integration, 5-option menu, balance check, sale recording (creates invoice), WHT payment instructions, Bia Score, VAT status. Tested locally via form-encoded POST."
-$d.current_task = "T3.3"
+$d.tasks.'T3.3'.status = "complete"
+$d.tasks.'T3.3'.notes = "T3.3 COMPLETE: Fraud Shield. Anomaly detection (3x avg), Vault Mode 24hr freeze, transaction secret, SIM-swap stub, fraud events log. Security screen. Fraud checks wired into gateway payment flow."
+$d.current_task = "T3.4"
 [System.IO.File]::WriteAllText($p, ($d | ConvertTo-Json -Depth 10), [System.Text.Encoding]::UTF8)
-wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git add -A && git --no-pager commit -m 'T3.2: USSD Gateway — AT integration, 5-option menu, invoice + WHT + score via feature phone'"
+wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git add -A && git --no-pager commit -m 'T3.3: Fraud Shield — anomaly detection + Vault Mode + transaction secret + security screen'"
 wsl -d Ubuntu -- bash -c "cd /home/bishop/projects/biasharasmart && git push origin main"
-Write-Host "T3.2 COMPLETE"
+Write-Host "T3.3 COMPLETE"
 ```

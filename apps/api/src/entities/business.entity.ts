@@ -59,6 +59,15 @@ export class Business {
   @Column({ name: 'bia_score', type: 'int', default: 0 })
   biaScore!: number;
 
+  @Column({ name: 'vault_mode', type: 'boolean', default: false })
+  vaultMode!: boolean;
+
+  @Column({ name: 'vault_triggered_at', type: 'timestamptz', nullable: true })
+  vaultTriggeredAt?: Date;
+
+  @Column({ name: 'transaction_secret', length: 3, nullable: true })
+  transactionSecret?: string;
+
   @Column({ name: 'co_op_virtual_account', length: 100, nullable: true })
   coOpVirtualAccount?: string;
 

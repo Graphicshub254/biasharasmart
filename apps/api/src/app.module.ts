@@ -16,6 +16,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { ReportsModule } from './reports/reports.module';
 import { PayrollModule } from './payroll/payroll.module';
 import { UssdModule } from './ussd/ussd.module';
+import { FraudModule } from './fraud/fraud.module';
 import databaseConfig from './config/database.config';
 
 @Module({
@@ -38,6 +39,7 @@ import databaseConfig from './config/database.config';
     ReportsModule,
     PayrollModule,
     UssdModule,
+    FraudModule,
   ],
   controllers: [AppController],
   providers: [AppService],
