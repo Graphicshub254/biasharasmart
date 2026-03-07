@@ -11,3 +11,5 @@ __pycache__/
 *.pyc
 .venv/
 mcp/__pycache__/
+apps/api/secret.json
+apps/api/vault.json
