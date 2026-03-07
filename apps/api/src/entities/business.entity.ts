@@ -68,6 +68,9 @@ export class Business {
   @Column({ name: 'transaction_secret', length: 3, nullable: true })
   transactionSecret?: string;
 
+  @Column({ name: 'green_multiplier_active', type: 'boolean', default: false })
+  greenMultiplierActive!: boolean;
+
   @Column({ name: 'co_op_virtual_account', length: 100, nullable: true })
   coOpVirtualAccount?: string;
 

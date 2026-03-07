@@ -208,3 +208,9 @@ export interface ApiError {
   message: string | string[];
   error: string;
 }
+
+// ─── Carbon Constants ─────────────────────────────────────────────────────────
+export const CO2_KG_PER_KWH_KENYA = 0.512;     // Kenya grid emission factor (kg CO2/kWh)
+export const CARBON_CREDIT_KES_PER_KG = 0.85;  // Estimated KES value per kg CO2 avoided
+export const GREEN_SCORE_MULTIPLIER = 50;        // Bia Score bonus points
+export const MIN_KWH_FOR_DIVIDEND = 100;         // Minimum monthly kWh for dividend eligibility
