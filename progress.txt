@@ -74,11 +74,11 @@
       "checkpoint": "COMPLETE: All steps done, committed"
     },
     "T3.4": {
-      "status": "not_started",
-      "notes": ""
+      "status": "complete",
+      "notes": "T3.4 COMPLETE: Carbon D-MRV engine. Green asset registration (Solar/EV/Cooking), daily MRV readings, CO2 calculation (Kenya grid 0.512 kg/kWh), carbon dividends, KNCR stub ref. Green multiplier wired into Bia Score. Carbon dashboard screen."
     }
   },
-  "current_task": "T3.4",
-  "current_phase": 3,
+  "current_task": "T4.1",
+  "current_phase": 4,
   "last_updated": "2026-03-06T16:58:54.025366+00:00"
 }

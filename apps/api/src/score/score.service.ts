@@ -6,6 +6,7 @@ import { Invoice } from '../entities/invoice.entity';
 import { Payment, PaymentStatus } from '../entities/payment.entity';
 import { WhtLiability, WhtLiabilityStatus } from '../entities/wht-liability.entity';
 import { NotificationsService } from '../notifications/notifications.service';
+import { GREEN_SCORE_MULTIPLIER } from '@biasharasmart/shared-types';
 
 @Injectable()
 export class ScoreService {
@@ -69,7 +70,8 @@ export class ScoreService {
     const growthRatio = lastRevenue > 0 ? Math.min(2, thisRevenue / lastRevenue) : (thisRevenue > 0 ? 1 : 0);
     const growth = Math.round(growthRatio * 150); // max 300 at 2x growth
 
-    const total = Math.min(1000, consistency + taxHygieneFinal + growth);
+    const greenMultiplier = business.greenMultiplierActive ? GREEN_SCORE_MULTIPLIER : 0;
+    const total = Math.min(1000, consistency + taxHygieneFinal + growth + greenMultiplier);
 
     // Check for milestone milestones: 400, 600, 800
     const oldScore = business.biaScore;
@@ -91,7 +93,7 @@ export class ScoreService {
 
     return {
       total,
-      breakdown: { consistency, taxHygiene: taxHygieneFinal, growth, greenMultiplier: 0 },
+      breakdown: { consistency, taxHygiene: taxHygieneFinal, growth, greenMultiplier },
       nextMilestone: total < 400 ? 400 : total < 600 ? 600 : total < 800 ? 800 : 1000,
       loanEligible: total >= 600,
     };

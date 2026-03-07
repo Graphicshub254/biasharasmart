@@ -226,15 +226,15 @@ wsl -d Ubuntu -- bash -c "curl -s -X POST http://localhost:3000/api/carbon/7951d
 Expected: totalKwh=12.5, carbonKgAvoided=6.4 (12.5*0.512), dividendKes=0 (below 100kWh threshold)
 
 ## Exit criteria
-- [ ] green_assets + mrv_readings + carbon_dividends tables created
-- [ ] Register asset endpoint works
-- [ ] Log MRV reading endpoint works
-- [ ] Calculate dividend: correct CO2 math (kWh * 0.512)
-- [ ] Green multiplier activates on Bia Score when 100+ kWh/month
-- [ ] Carbon dashboard screen shows kWh, CO2, dividend
-- [ ] Add asset + log reading screens functional
-- [ ] More tab has Green Carbon link
-- [ ] API build + mobile tsc: zero errors
+- [x] green_assets + mrv_readings + carbon_dividends tables created
+- [x] Register asset endpoint works
+- [x] Log MRV reading endpoint works
+- [x] Calculate dividend: correct CO2 math (kWh * 0.512)
+- [x] Green multiplier activates on Bia Score when 100+ kWh/month
+- [x] Carbon dashboard screen shows kWh, CO2, dividend
+- [x] Add asset + log reading screens functional
+- [x] More tab has Green Carbon link
+- [x] API build + mobile tsc: zero errors
 
 ## On completion
 
